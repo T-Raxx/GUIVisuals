@@ -146,15 +146,16 @@ return function(GV)
             self:_set(L, "Ambient", WHITE); self:_set(L, "OutdoorAmbient", WHITE)
             self:_set(L, "Brightness", 1); self:_set(L, "GlobalShadows", false)
         else
-            local amb = self:_flag("World_Ambient", Color3.fromRGB(120, 120, 125))
+            local amb = GV.Color.fade(self.Flags, "World_Ambient", tick())
             self:_set(L, "Ambient", amb)
-            self:_set(L, "OutdoorAmbient", self:_flag("World_OutdoorAmbient", amb))
+            local oa = self.Flags["World_OutdoorAmbient"] and GV.Color.fade(self.Flags, "World_OutdoorAmbient", tick()) or amb
+            self:_set(L, "OutdoorAmbient", oa)
             self:_set(L, "Brightness", self:_flag("World_Brightness", 3))
             self:_set(L, "GlobalShadows", not self:_flag("World_NoShadows", false))
         end
         self:_set(L, "ExposureCompensation", self:_flag("World_Exposure", 0))
-        self:_set(L, "ColorShift_Top", self:_flag("World_ColorShiftTop", Color3.new()))
-        self:_set(L, "ColorShift_Bottom", self:_flag("World_ColorShiftBottom", Color3.new()))
+        self:_set(L, "ColorShift_Top", GV.Color.fade(self.Flags, "World_ColorShiftTop", tick()))
+        self:_set(L, "ColorShift_Bottom", GV.Color.fade(self.Flags, "World_ColorShiftBottom", tick()))
         self:_set(L, "EnvironmentDiffuseScale", self:_flag("World_EnvDiffuse", 1))
         self:_set(L, "EnvironmentSpecularScale", self:_flag("World_EnvSpecular", 1))
         self:_set(L, "GeographicLatitude", self:_flag("World_GeoLatitude", 41.733))
@@ -191,7 +192,7 @@ return function(GV)
         else
             self:_set(L, "FogStart", self:_flag("World_FogStart", 0))
             self:_set(L, "FogEnd", self:_flag("World_FogEnd", 2500))
-            self:_set(L, "FogColor", self:_flag("World_FogColor", Color3.fromRGB(190, 195, 210)))
+            self:_set(L, "FogColor", GV.Color.fade(self.Flags, "World_FogColor", tick()))
         end
         if self:_flag("World_Atmosphere", false) then
             local a = self:_fx("Atmosphere")
@@ -199,8 +200,8 @@ return function(GV)
             a.Offset  = self:_flag("World_AtmOffset", 0.25)
             a.Glare   = self:_flag("World_AtmGlare", 0)
             a.Haze    = self:_flag("World_AtmHaze", 0)
-            a.Color   = self:_flag("World_AtmColor", Color3.fromRGB(199, 199, 199))
-            a.Decay   = self:_flag("World_AtmDecay", Color3.fromRGB(106, 112, 125))
+            a.Color   = GV.Color.fade(self.Flags, "World_AtmColor", tick())
+            a.Decay   = GV.Color.fade(self.Flags, "World_AtmDecay", tick())
         else
             self:_killAtmosphere()
         end
@@ -226,7 +227,7 @@ return function(GV)
                 local t = (tick() * self:_flag("World_RainbowSpeed", 1)) % 1
                 cc.TintColor = Color3.fromHSV(t, 0.5, 1)
             else
-                cc.TintColor = self:_flag("World_TintColor", WHITE)
+                cc.TintColor = GV.Color.fade(self.Flags, "World_TintColor", tick())
             end
         end
         local bm = self:_fx("BloomEffect")
@@ -292,14 +293,14 @@ return function(GV)
         self:_set(clouds, "Enabled", not self:_flag("World_NoClouds", false))
         self:_set(clouds, "Cover", self:_flag("World_CloudCover", 0.5))
         self:_set(clouds, "Density", self:_flag("World_CloudDensity", 0.7))
-        self:_set(clouds, "Color", self:_flag("World_CloudColor", WHITE))
+        self:_set(clouds, "Color", GV.Color.fade(self.Flags, "World_CloudColor", tick()))
     end
 
     -- H. Terrain / agua
     function World:_applyWater()
         local Terrain = self.Services.Terrain
         if not Terrain or not self:_flag("World_WaterEnable", false) then return end
-        self:_set(Terrain, "WaterColor", self:_flag("World_WaterColor", Color3.fromRGB(12, 84, 92)))
+        self:_set(Terrain, "WaterColor", GV.Color.fade(self.Flags, "World_WaterColor", tick()))
         self:_set(Terrain, "WaterTransparency", self:_flag("World_WaterTransparency", 0.3))
         self:_set(Terrain, "WaterReflectance", self:_flag("World_WaterReflectance", 1))
         self:_set(Terrain, "WaterWaveSize", self:_flag("World_WaterWaveSize", 0.15))
@@ -386,7 +387,7 @@ return function(GV)
         emit.Speed = NumberRange.new(cfg.speed * spd * 0.9, cfg.speed * spd)
         emit.Acceleration = accel
         emit.Size = NumberSequence.new(cfg.size * sz)
-        emit.Color = ColorSequence.new(self:_flag("World_WeatherColor", Color3.fromRGB(220, 230, 255)))
+        emit.Color = ColorSequence.new(GV.Color.fade(self.Flags, "World_WeatherColor", tick()))
         emit.LightEmission = self:_flag("World_WeatherGlow", cfg.light)
         emit.Transparency = NumberSequence.new(self:_flag("World_WeatherTransparency", cfg.transp))
         emit.Enabled = true
