@@ -229,10 +229,12 @@ return function(GV)
         local showNum   = hpStyle == "Numero" or hpStyle == "Barra+Numero"
 
         -- box
-        b.box.Visible, b.boxOl.Visible = showBox, showBox
+        b.box.Visible = showBox
+        b.boxOl.Visible = showBox and self:_flag("BoxOutline", true)
         if showBox then
-            local bc = self:_col(tg, "ESP_BoxColor", t)
-            b.box.Color = bc
+            b.box.Color = self:_col(tg, "ESP_BoxColor", t)
+            b.box.Filled = self:_flag("BoxFilled", false)
+            b.box.Thickness = self:_flag("BoxThickness", 1)
             b.box.Size = Vector2.new(w, h); b.box.Position = Vector2.new(x, y); b.box.ZIndex = 2
             b.boxOl.Size = b.box.Size; b.boxOl.Position = b.box.Position; b.boxOl.ZIndex = 1
         end

@@ -14,6 +14,7 @@ local ORDER = {
     "ui/adapter_primordial.lua",
     "schema/_helpers.lua",
     "schema/world.lua",
+    "schema/esp.lua",
     "games/rivals.lua",
     "games/_template.lua",
     "entry/attach.lua",
