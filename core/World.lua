@@ -12,7 +12,7 @@ return function(GV)
             Workspace = workspace,
         }
         local self = setmetatable({
-            Flags = {}, Services = svc, Conns = {},
+            Flags = opts.flags or {}, Services = svc, Conns = {},
             _orig = {}, _made = {}, _fxCache = {}, _applies = {},
             Loaded = false, _wasOn = false,
         }, World)
@@ -452,4 +452,7 @@ return function(GV)
     end
 
     GV.World = World
+    GV.Modules = GV.Modules or {}
+    GV.Modules.world = GV.Modules.world or {}
+    GV.Modules.world.new = function(o) return World.new(o) end
 end
