@@ -47,13 +47,13 @@ return function(P)
         SubText   = Color3.fromRGB(132, 132, 140),
         Positive  = Color3.fromRGB(120, 200, 120),
         Negative  = Color3.fromRGB(210, 70, 70),
-        Radius    = 6,
-        RadiusBig = 9,
-        Pad       = 8,
-        RowH      = 26,
+        Radius    = 5,
+        RadiusBig = 7,
+        Pad       = 6,
+        RowH      = 22,          -- compacto (match primordial real)
         Font      = Enum.Font.Gotham,
         FontBold  = Enum.Font.GothamBold,
-        TextSize  = 13,
+        TextSize  = 12,
         Shadow    = "rbxassetid://6014261993",       -- drop shadow 9-slice
     }
 end
@@ -1085,44 +1085,51 @@ return function(P)
             _widgets = {}, Tabs = nil,
         }, Panel)
 
+        local HH = 26 -- alto header (compacto)
         -- alto FIJO ligado al Body (no AutomaticSize) para que la sombra offset no lo infle
         self.Frame = U.Create("Frame", {
-            Parent = columnFrame, Size = UDim2.new(1, 0, 0, 31), ClipsDescendants = false,
+            Parent = columnFrame, Size = UDim2.new(1, 0, 0, HH + 1), ClipsDescendants = false,
             BackgroundColor3 = T.Surface, BorderSizePixel = 0, LayoutOrder = #Section.Panels + 1,
         }, {
             U.Create("UICorner", { CornerRadius = UDim.new(0, T.Radius) }),
             U.Create("UIStroke", { Color = T.Border, Thickness = 1 }),
+            -- gradiente sutil de profundidad (arriba mas claro -> abajo mas oscuro)
+            U.Create("UIGradient", { Rotation = 90,
+                Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+                    ColorSequenceKeypoint.new(1, Color3.fromRGB(224, 224, 228)),
+                }) }),
         })
         self.Library.Registry:Add(self.Frame, "Surface", "BackgroundColor3")
 
         -- sombra externa suave (Frame no es AutomaticSize => segura)
-        U.Shadow(self.Frame, { Spread = 20, Transparency = 0.8, YOffset = 5 })
+        U.Shadow(self.Frame, { Spread = 18, Transparency = 0.78, YOffset = 4 })
 
         self.Header = U.Create("TextLabel", {
             Parent = self.Frame, BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 0, 30),
-            Font = T.FontBold, TextSize = 14, Text = title, TextColor3 = T.Text,
+            Position = UDim2.fromOffset(9, 0), Size = UDim2.new(1, -18, 0, HH),
+            Font = T.FontBold, TextSize = 13, Text = title, TextColor3 = T.Text,
             TextXAlignment = Enum.TextXAlignment.Left,
         })
         -- separador bajo el titulo: color principal (accent)
-        local sep = U.Create("Frame", { Parent = self.Frame, Position = UDim2.fromOffset(0, 30),
+        local sep = U.Create("Frame", { Parent = self.Frame, Position = UDim2.fromOffset(0, HH),
             Size = UDim2.new(1, 0, 0, 1), BorderSizePixel = 0, BackgroundColor3 = T.Accent })
         self.Library.Registry:Add(sep, "Accent", "BackgroundColor3")
 
         self.Body = U.Create("Frame", {
-            Parent = self.Frame, Position = UDim2.fromOffset(0, 31),
+            Parent = self.Frame, Position = UDim2.fromOffset(0, HH + 1),
             Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
             BackgroundTransparency = 1,
         }, {
-            U.Create("UIListLayout", { Padding = UDim.new(0, 3),
+            U.Create("UIListLayout", { Padding = UDim.new(0, 2),
                 SortOrder = Enum.SortOrder.LayoutOrder }),
-            U.Create("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 8),
-                PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }),
+            U.Create("UIPadding", { PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 6),
+                PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
         })
 
         -- ligar alto del Frame al contenido del Body
         local function resize()
-            self.Frame.Size = UDim2.new(1, 0, 0, 31 + self.Body.AbsoluteSize.Y)
+            self.Frame.Size = UDim2.new(1, 0, 0, (HH + 1) + self.Body.AbsoluteSize.Y)
         end
         self.Library:Maid(self.Body:GetPropertyChangedSignal("AbsoluteSize"):Connect(resize))
         resize()
