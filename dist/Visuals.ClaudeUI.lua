@@ -34,11 +34,20 @@ do local chunk = "return function(GV)\r\
         local c1 = flags[base]\r\
         if typeof(c1) ~= \"Color3\" then return WHITE end\r\
         if not flags[base .. \"_Fade\"] then return c1 end\r\
+        t = t or tick()\r\
+        local speed = flags[\"Suite_FadeSpeed\"] or 1\r\
+        local mode = flags[\"Suite_FadeMode\"] or \"Onda\"\r\
+        if mode == \"Rainbow\" then\r\
+            local _, s, v = Color3.toHSV(c1)\r\
+            return Color3.fromHSV((t * speed * 0.2) % 1, math.max(s, 0.55), math.max(v, 0.7))\r\
+        end\r\
         local c2 = flags[base .. \"_2\"]\r\
         if typeof(c2) ~= \"Color3\" then return c1 end\r\
-        local speed = flags[\"Suite_FadeSpeed\"] or 1\r\
-        local a = (math.sin((t or tick()) * speed * math.pi * 2) + 1) / 2\r\
-        return c1:Lerp(c2, a)\r\
+        if mode == \"Pulso\" then\r\
+            return c1:Lerp(c2, math.abs(math.sin(t * speed * math.pi)))\r\
+        end\r\
+        -- Onda (default): oscila suave c1<->c2\r\
+        return c1:Lerp(c2, (math.sin(t * speed * math.pi * 2) + 1) / 2)\r\
     end\r\
     GV.Color = Color\r\
 end\r\
@@ -769,7 +778,10 @@ do local chunk = "return function(GV)\r\
         b.boxOl.Visible = showBox and self:_flag(\"BoxOutline\", true)\r\
         if showBox then\r\
             b.box.Color = self:_col(tg, \"ESP_BoxColor\", t)\r\
-            b.box.Filled = self:_flag(\"BoxFilled\", false)\r\
+            local filled = self:_flag(\"BoxFilled\", false)\r\
+            b.box.Filled = filled\r\
+            -- Drawing.Transparency: 1=opaco, 0=invisible -> alpha del relleno\r\
+            b.box.Transparency = filled and self:_flag(\"BoxFillAlpha\", 0.35) or 1\r\
             b.box.Thickness = self:_flag(\"BoxThickness\", 1)\r\
             b.box.Size = Vector2.new(w, h); b.box.Position = Vector2.new(x, y); b.box.ZIndex = 2\r\
             b.boxOl.Size = b.box.Size; b.boxOl.Position = b.box.Position; b.boxOl.ZIndex = 1\r\
@@ -835,6 +847,7 @@ do local chunk = "return function(GV)\r\
         local font = self:_flag(\"Font\", 2)\r\
         local textSize = self:_flag(\"TextSize\", 13)\r\
         local maxDist = self:_flag(\"MaxDistance\", 1200)\r\
+        if maxDist <= 0 then maxDist = math.huge end -- 0 = sin limite de distancia\r\
         local maxTargets = self:_flag(\"MaxTargets\", 50)\r\
         local t = tick()\r\
         local live, count = {}, 0\r\
@@ -1073,17 +1086,32 @@ do local chunk = "return function(GV)\r\
     -- NOTA aspect: en Potassium ViewportSize es read-only duro (setscriptable/sethiddenproperty\r\
     -- no lo escriben) -> stretch pixel-real NO reproducible sin render-hooks. Mecanismo entregable:\r\
     -- FieldOfViewMode (Vertical/Diagonal/MaxAxis) + MaxAxisFieldOfView, que altera el mapeo FOV<->aspecto.\r\
+    -- restaura una prop guardada (revierte por-feature al apagar el toggle, sin esperar al master)\r\
+    function SelfFX:_restoreOne(obj, prop)\r\
+        local m = self._orig[obj]\r\
+        if m and m[prop] ~= nil then pcall(function() obj[prop] = m[prop] end); m[prop] = nil end\r\
+    end\r\
+\r\
     function SelfFX:_applyCamera()\r\
         local cam = self.Services.Workspace.CurrentCamera\r\
         if not cam then return end\r\
+        -- FOV changer (cleanup al apagar)\r\
         if self:_flag(\"FOV\", false) then\r\
             local fov = self:_flag(\"FOVValue\", 70)\r\
             if self._provider and self._provider.setFOV then self._provider.setFOV(fov - 70)\r\
             else self:_set(cam, \"FieldOfView\", fov) end\r\
+        else\r\
+            if self._provider and self._provider.setFOV then self._provider.setFOV(0)\r\
+            else self:_restoreOne(cam, \"FieldOfView\") end\r\
         end\r\
+        -- 3ra persona (cleanup al apagar)\r\
+        local plr = self.Services.Players and self.Services.Players.LocalPlayer\r\
         if self:_flag(\"ThirdPerson\", false) then\r\
             if self._provider and self._provider.setThirdPerson then self._provider.setThirdPerson(true)\r\
             else self:_thirdPersonGeneric() end\r\
+        else\r\
+            if self._provider and self._provider.setThirdPerson then self._provider.setThirdPerson(false)\r\
+            elseif plr then self:_restoreOne(plr, \"CameraMode\"); self:_restoreOne(plr, \"CameraMaxZoomDistance\") end\r\
         end\r\
     end\r\
 \r\
@@ -1096,12 +1124,9 @@ do local chunk = "return function(GV)\r\
         if not cam then return end\r\
         local sx, sy = self:_flag(\"AspectH\", 1), self:_flag(\"AspectV\", 1)\r\
         if sx == 1 and sy == 1 then return end\r\
-        local cf = cam.CFrame; local p = cf.Position\r\
-        local r, u, b = cf.RightVector, cf.UpVector, -cf.LookVector\r\
-        cam.CFrame = CFrame.new(p.X, p.Y, p.Z,\r\
-            r.X * sx, u.X * sy, b.X,\r\
-            r.Y * sx, u.Y * sy, b.Y,\r\
-            r.Z * sx, u.Z * sy, b.Z)\r\
+        -- post-multiplicar por una matriz de escala en espacio LOCAL de la camara (escala Right/Up).\r\
+        -- Corre en Camera+1 (cf ya ortonormal este frame) -> NO compone y es estable en cualquier pitch.\r\
+        cam.CFrame = cam.CFrame * CFrame.new(0, 0, 0, sx, 0, 0, 0, sy, 0, 0, 0, 1)\r\
     end\r\
 \r\
     -- 3ra persona genérica (best-effort): habilita zoom-out (restaurado en unload).\r\
@@ -1265,15 +1290,23 @@ do local chunk = "return function(GV)\r\
     function SelfFX:_applyKeybindList(t)\r\
         local hud = self:_makeHUD()\r\
         for _, l in ipairs(hud.kb) do l.Visible = false end\r\
+        if hud.kb[0] then hud.kb[0].Visible = false end\r\
         if not self:_flag(\"KeybindList\", false) then return end\r\
-        local list = self._provider and self._provider.keybinds and self._provider.keybinds() or {}\r\
+        -- fuente: provider.keybinds() > self._keybindList (features con keybind del schema)\r\
+        local list\r\
+        if self._provider and self._provider.keybinds then local ok, r = pcall(self._provider.keybinds); list = ok and r or nil end\r\
+        list = list or self._keybindList or {}\r\
         local col = GV.Color.fade(self.Flags, \"Local_KeybindColor\", t)\r\
         local x, y = self:_flag(\"KeybindX\", 10), self:_flag(\"KeybindY\", 120)\r\
+        local header = hud.kb[0]\r\
+        if not header then header = self:_draw(\"Text\", { Outline = true, Size = 13, Font = 3 }); hud.kb[0] = header end\r\
+        header.Visible = true; header.Text = \"[ keybinds ]\"; header.Color = col; header.Position = Vector2.new(x, y); header.ZIndex = 10\r\
         for i, kb in ipairs(list) do\r\
             local o = hud.kb[i]\r\
             if not o then o = self:_draw(\"Text\", { Outline = true, Size = 13, Font = 2 }); hud.kb[i] = o end\r\
-            o.Visible = true; o.Text = (kb.name or \"?\") .. \": \" .. tostring(kb.key or \"?\")\r\
-            o.Color = col; o.Position = Vector2.new(x, y + (i - 1) * 15); o.ZIndex = 10\r\
+            o.Visible = true\r\
+            o.Text = tostring(kb.name or \"?\") .. (kb.key and (\" [\" .. tostring(kb.key) .. \"]\") or \"\")\r\
+            o.Color = col; o.Position = Vector2.new(x, y + i * 15); o.ZIndex = 10\r\
         end\r\
     end\r\
 \r\
@@ -1427,181 +1460,155 @@ do local chunk = "return function(GV)\r\
 end\r\
 "
 local f = loadstring(chunk, '@ui/renderer.lua')(); f(GV) end
-do local chunk = "return function(GV)\
-    local Preview = {}\
-    local RunService = game:GetService(\"RunService\")\
-    local Players = game:GetService(\"Players\")\
-    local UIS = game:GetService(\"UserInputService\")\
-\
-    local function huiParent()\
-        local ok, g = pcall(function() return gethui and gethui() end)\
-        if ok and g then return g end\
-        return game:GetService(\"CoreGui\")\
-    end\
-\
-    function Preview.mount(suite, opts)\
-        opts = opts or {}\
-        local flags = suite.flags\
-        local self = { suite = suite, _made = {}, _conns = {}, _grid = {} }\
-\
-        -- limpiar previews huérfanos (mounts previos que quedaron sin unload por reconexion)\
-        pcall(function()\
-            for _, g in ipairs(huiParent():GetChildren()) do\
-                if g:IsA(\"ScreenGui\") and g.Name:sub(1, 6) == \"PUIpv_\" then g:Destroy() end\
-            end\
-        end)\
-        local gui = Instance.new(\"ScreenGui\")\
-        gui.Name = \"PUIpv_\" .. tostring(math.random(1e5, 9e5))\
-        gui.ResetOnSpawn = false; gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling\
-        gui.Parent = huiParent(); table.insert(self._made, gui)\
-\
-        local root = Instance.new(\"Frame\")\
-        root.Size = UDim2.fromOffset(260, 320)\
-        root.AnchorPoint = Vector2.new(1, 0.5)\
-        root.Position = UDim2.new(1, -12, 0.5, 0)\
-        root.BackgroundColor3 = Color3.fromRGB(18, 20, 26); root.BorderSizePixel = 0; root.Parent = gui\
-        Instance.new(\"UICorner\", root).CornerRadius = UDim.new(0, 8)\
-        local st = Instance.new(\"UIStroke\", root); st.Color = Color3.fromRGB(8, 8, 10); st.Thickness = 1\
-        self.Root = root\
-\
-        local header = Instance.new(\"Frame\"); header.Size = UDim2.new(1, 0, 0, 26)\
-        header.BackgroundColor3 = Color3.fromRGB(30, 30, 36); header.BorderSizePixel = 0; header.Parent = root\
-        Instance.new(\"UICorner\", header).CornerRadius = UDim.new(0, 8)\
-        local title = Instance.new(\"TextLabel\"); title.BackgroundTransparency = 1\
-        title.Size = UDim2.new(1, -10, 1, 0); title.Position = UDim2.fromOffset(8, 0)\
-        title.Font = Enum.Font.GothamBold; title.TextSize = 13; title.TextColor3 = Color3.fromRGB(202, 151, 161)\
-        title.TextXAlignment = Enum.TextXAlignment.Left; title.Text = \"Preview\"; title.Parent = header\
-\
-        local dragging, sPos, sMouse\
-        header.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; sPos = root.Position; sMouse = UIS:GetMouseLocation() end end)\
-        header.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)\
-        table.insert(self._conns, UIS.InputChanged:Connect(function(i)\
-            if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then\
-                local d = UIS:GetMouseLocation() - sMouse\
-                root.Position = UDim2.new(sPos.X.Scale, sPos.X.Offset + d.X, sPos.Y.Scale, sPos.Y.Offset + d.Y)\
-            end\
-        end))\
-\
-        -- ViewportFrame estilo BLUEPRINT: fondo negro, grid gris 3D detras (en el WorldModel).\
-        local vf = Instance.new(\"ViewportFrame\")\
-        vf.Position = UDim2.fromOffset(8, 32); vf.Size = UDim2.new(1, -16, 1, -40)\
-        vf.BackgroundColor3 = Color3.fromRGB(4, 6, 10); vf.BorderSizePixel = 0\
-        vf.Ambient = Color3.fromRGB(150, 150, 160); vf.LightColor = Color3.fromRGB(255, 255, 255)\
-        vf.LightDirection = Vector3.new(-0.4, -1, -0.5); vf.Parent = root\
-        Instance.new(\"UICorner\", vf).CornerRadius = UDim.new(0, 6)\
-        local cam = Instance.new(\"Camera\"); cam.Parent = vf; vf.CurrentCamera = cam\
-        local world = Instance.new(\"WorldModel\"); world.Parent = vf\
-        self.VF, self.Cam, self.World = vf, cam, world\
-\
-        -- overlay ESP: box + nombre + healthbar (sobre el 3D)\
-        local box = Instance.new(\"Frame\"); box.BackgroundTransparency = 1; box.BorderSizePixel = 0\
-        box.AnchorPoint = Vector2.new(0.5, 0.5); box.Position = UDim2.new(0.5, 0, 0.5, 6)\
-        box.Size = UDim2.fromOffset(64, 150); box.ZIndex = 3; box.Parent = vf\
-        local boxStroke = Instance.new(\"UIStroke\", box); boxStroke.Thickness = 1.5; boxStroke.Color = Color3.fromRGB(0, 255, 120)\
-        self._box, self._boxStroke = box, boxStroke\
-        local nameLbl = Instance.new(\"TextLabel\"); nameLbl.BackgroundTransparency = 1; nameLbl.Font = Enum.Font.Gotham\
-        nameLbl.TextSize = 12; nameLbl.AnchorPoint = Vector2.new(0.5, 1); nameLbl.Position = UDim2.new(0.5, 0, 0, -1)\
-        nameLbl.Size = UDim2.new(1, 0, 0, 14); nameLbl.ZIndex = 4; nameLbl.Parent = box; nameLbl.Text = \"Preview\"\
-        self._nameLbl = nameLbl\
-        local hpBg = Instance.new(\"Frame\"); hpBg.BorderSizePixel = 0; hpBg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)\
-        hpBg.AnchorPoint = Vector2.new(1, 0); hpBg.Position = UDim2.new(0, -3, 0, 0); hpBg.Size = UDim2.new(0, 3, 1, 0); hpBg.ZIndex = 3; hpBg.Parent = box\
-        local hpBar = Instance.new(\"Frame\"); hpBar.BorderSizePixel = 0; hpBar.BackgroundColor3 = Color3.fromRGB(90, 220, 90)\
-        hpBar.AnchorPoint = Vector2.new(0, 1); hpBar.Position = UDim2.new(0, 0, 1, 0); hpBar.Size = UDim2.new(1, 0, 0.7, 0); hpBar.ZIndex = 4; hpBar.Parent = hpBg\
-        self._hpBg, self._hpBar = hpBg, hpBar\
-\
-        function self:_buildGrid()\
-            for _, p in ipairs(self._grid) do pcall(function() p:Destroy() end) end\
-            self._grid = {}\
-            if not self._center then return end\
-            local ext = math.max(self._radius * 2.2, 6)\
-            local step = ext / 5\
-            local y = self._center.Y - self._radius * 1.05\
-            local col = Color3.fromRGB(70, 90, 110)\
-            for i = -5, 5 do\
-                for _, axis in ipairs({ \"X\", \"Z\" }) do\
-                    local p = Instance.new(\"Part\"); p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false\
-                    p.Material = Enum.Material.Neon; p.Color = col\
-                    if axis == \"X\" then\
-                        p.Size = Vector3.new(ext * 2, 0.04, 0.06)\
-                        p.CFrame = CFrame.new(self._center.X, y, self._center.Z + i * step)\
-                    else\
-                        p.Size = Vector3.new(0.06, 0.04, ext * 2)\
-                        p.CFrame = CFrame.new(self._center.X + i * step, y, self._center.Z)\
-                    end\
-                    p.Parent = self.World\
-                    table.insert(self._grid, p)\
-                end\
-            end\
-        end\
-\
-        function self:SetModel(char)\
-            for _, c in ipairs(self.World:GetChildren()) do if c ~= nil then c:Destroy() end end\
-            self._grid = {}; self.Model = nil\
-            if not char then return end\
-            local m; local prev = char.Archivable; char.Archivable = true\
-            pcall(function() m = char:Clone() end); char.Archivable = prev\
-            if not m then return end\
-            for _, d in ipairs(m:GetDescendants()) do if d:IsA(\"Script\") or d:IsA(\"LocalScript\") then d:Destroy() end end\
-            m.Parent = self.World; self.Model = m\
-            local ok, cf, size = pcall(function() return m:GetBoundingBox() end)\
-            if ok and cf then\
-                self._center = cf.Position; self._radius = math.max(size.Magnitude / 2, 1)\
-                self._dist = self._radius / math.tan(math.rad(30)) + self._radius\
-            end\
-            self._angle = 0\
-            self:_buildGrid()\
-        end\
-\
-        function self:_apply(a)\
-            if not self._center then return end\
-            local pos = self._center + Vector3.new(math.sin(a) * self._dist, self._radius * 0.35, math.cos(a) * self._dist)\
-            self.Cam.CFrame = CFrame.lookAt(pos, self._center)\
-        end\
-\
-        function self:_step(dt)\
-            local show = opts.always or (flags.Suite_Preview and true or false)\
-            self.Root.Visible = show\
-            if not show or not self.Model then return end\
-            self._angle = (self._angle or 0) + math.rad(40) * dt\
-            self:_apply(self._angle)\
-            local t = tick()\
-            -- world lighting -> viewport ambient\
-            self.VF.Ambient = flags.World_Ambient and GV.Color.fade(flags, \"World_AmbientColor\", t) or Color3.fromRGB(150, 150, 160)\
-            self.VF.LightColor = flags.World_Fullbright and Color3.new(1, 1, 1) or Color3.fromRGB(255, 255, 255)\
-            -- chams\
-            local chamsOn = flags.ESP_Chams or flags.Local_SelfChams\
-            if chamsOn then\
-                if not self._chams then self._chams = Instance.new(\"Highlight\"); self._chams.Parent = self.VF; table.insert(self._made, self._chams) end\
-                self._chams.Adornee = self.Model; self._chams.Enabled = true\
-                local isSelf = flags.Local_SelfChams and true or false\
-                self._chams.FillColor = GV.Color.fade(flags, isSelf and \"Local_SelfChamsFill\" or \"ESP_ChamsFill\", t)\
-                self._chams.OutlineColor = GV.Color.fade(flags, isSelf and \"Local_SelfChamsOutline\" or \"ESP_ChamsOutline\", t)\
-            elseif self._chams then self._chams.Enabled = false end\
-            -- ESP overlay refleja los flags\
-            local espOn = flags.ESP_Enabled and true or false\
-            self._box.Visible = espOn and (flags.ESP_Box ~= false)\
-            self._boxStroke.Color = GV.Color.fade(flags, \"ESP_BoxColor\", t)\
-            self._nameLbl.Visible = espOn and (flags.ESP_Name ~= false)\
-            self._nameLbl.TextColor3 = GV.Color.fade(flags, \"ESP_NameColor\", t)\
-            self._hpBg.Visible = espOn and (flags.ESP_Health ~= false)\
-        end\
-\
-        table.insert(self._conns, RunService.RenderStepped:Connect(function(dt)\
-            local ok, err = pcall(function() self:_step(dt) end); if not ok then warn(\"[Preview] \" .. tostring(err)) end\
-        end))\
-\
-        function self:Unload()\
-            for _, c in ipairs(self._conns) do pcall(function() c:Disconnect() end) end\
-            for _, inst in ipairs(self._made) do pcall(function() inst:Destroy() end) end\
-            table.clear(self._conns); table.clear(self._made)\
-        end\
-\
-        local lp = Players.LocalPlayer\
-        if lp and lp.Character then self:SetModel(lp.Character) end\
-        return self\
-    end\
-    GV.Preview = Preview\
-end\
+do local chunk = "return function(GV)\r\
+    local Preview = {}\r\
+    local RunService = game:GetService(\"RunService\")\r\
+    local Players = game:GetService(\"Players\")\r\
+    local UIS = game:GetService(\"UserInputService\")\r\
+\r\
+    local function huiParent()\r\
+        local ok, g = pcall(function() return gethui and gethui() end)\r\
+        if ok and g then return g end\r\
+        return game:GetService(\"CoreGui\")\r\
+    end\r\
+\r\
+    function Preview.mount(suite, opts)\r\
+        opts = opts or {}\r\
+        local flags = suite.flags\r\
+        local self = { suite = suite, _made = {}, _conns = {} }\r\
+\r\
+        -- limpiar previews huérfanos (mounts previos que quedaron sin unload por reconexion)\r\
+        pcall(function()\r\
+            for _, g in ipairs(huiParent():GetChildren()) do\r\
+                if g:IsA(\"ScreenGui\") and g.Name:sub(1, 6) == \"PUIpv_\" then g:Destroy() end\r\
+            end\r\
+        end)\r\
+        local gui = Instance.new(\"ScreenGui\")\r\
+        gui.Name = \"PUIpv_\" .. tostring(math.random(1e5, 9e5))\r\
+        gui.ResetOnSpawn = false; gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling\r\
+        gui.Parent = huiParent(); table.insert(self._made, gui)\r\
+\r\
+        local root = Instance.new(\"Frame\")\r\
+        root.Size = UDim2.fromOffset(260, 320)\r\
+        root.AnchorPoint = Vector2.new(1, 0.5)\r\
+        root.Position = UDim2.new(1, -12, 0.5, 0)\r\
+        root.BackgroundColor3 = Color3.fromRGB(18, 20, 26); root.BorderSizePixel = 0; root.Parent = gui\r\
+        Instance.new(\"UICorner\", root).CornerRadius = UDim.new(0, 8)\r\
+        local st = Instance.new(\"UIStroke\", root); st.Color = Color3.fromRGB(8, 8, 10); st.Thickness = 1\r\
+        self.Root = root\r\
+\r\
+        local header = Instance.new(\"Frame\"); header.Size = UDim2.new(1, 0, 0, 26)\r\
+        header.BackgroundColor3 = Color3.fromRGB(30, 30, 36); header.BorderSizePixel = 0; header.Parent = root\r\
+        Instance.new(\"UICorner\", header).CornerRadius = UDim.new(0, 8)\r\
+        local title = Instance.new(\"TextLabel\"); title.BackgroundTransparency = 1\r\
+        title.Size = UDim2.new(1, -10, 1, 0); title.Position = UDim2.fromOffset(8, 0)\r\
+        title.Font = Enum.Font.GothamBold; title.TextSize = 13; title.TextColor3 = Color3.fromRGB(202, 151, 161)\r\
+        title.TextXAlignment = Enum.TextXAlignment.Left; title.Text = \"Preview\"; title.Parent = header\r\
+\r\
+        local dragging, sPos, sMouse\r\
+        header.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; sPos = root.Position; sMouse = UIS:GetMouseLocation() end end)\r\
+        header.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)\r\
+        table.insert(self._conns, UIS.InputChanged:Connect(function(i)\r\
+            if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then\r\
+                local d = UIS:GetMouseLocation() - sMouse\r\
+                root.Position = UDim2.new(sPos.X.Scale, sPos.X.Offset + d.X, sPos.Y.Scale, sPos.Y.Offset + d.Y)\r\
+            end\r\
+        end))\r\
+\r\
+        -- ViewportFrame estilo BLUEPRINT: fondo negro, grid gris 3D detras (en el WorldModel).\r\
+        local vf = Instance.new(\"ViewportFrame\")\r\
+        vf.Position = UDim2.fromOffset(8, 32); vf.Size = UDim2.new(1, -16, 1, -40)\r\
+        vf.BackgroundColor3 = Color3.fromRGB(4, 6, 10); vf.BorderSizePixel = 0\r\
+        vf.Ambient = Color3.fromRGB(150, 150, 160); vf.LightColor = Color3.fromRGB(255, 255, 255)\r\
+        vf.LightDirection = Vector3.new(-0.4, -1, -0.5); vf.Parent = root\r\
+        Instance.new(\"UICorner\", vf).CornerRadius = UDim.new(0, 6)\r\
+        local cam = Instance.new(\"Camera\"); cam.Parent = vf; vf.CurrentCamera = cam\r\
+        local world = Instance.new(\"WorldModel\"); world.Parent = vf\r\
+        self.VF, self.Cam, self.World = vf, cam, world\r\
+\r\
+        -- overlay ESP: box + nombre + healthbar (sobre el 3D)\r\
+        local box = Instance.new(\"Frame\"); box.BackgroundTransparency = 1; box.BorderSizePixel = 0\r\
+        box.AnchorPoint = Vector2.new(0.5, 0.5); box.Position = UDim2.new(0.5, 0, 0.5, 6)\r\
+        box.Size = UDim2.fromOffset(64, 150); box.ZIndex = 3; box.Parent = vf\r\
+        local boxStroke = Instance.new(\"UIStroke\", box); boxStroke.Thickness = 1.5; boxStroke.Color = Color3.fromRGB(0, 255, 120)\r\
+        self._box, self._boxStroke = box, boxStroke\r\
+        local nameLbl = Instance.new(\"TextLabel\"); nameLbl.BackgroundTransparency = 1; nameLbl.Font = Enum.Font.Gotham\r\
+        nameLbl.TextSize = 12; nameLbl.AnchorPoint = Vector2.new(0.5, 1); nameLbl.Position = UDim2.new(0.5, 0, 0, -1)\r\
+        nameLbl.Size = UDim2.new(1, 0, 0, 14); nameLbl.ZIndex = 4; nameLbl.Parent = box; nameLbl.Text = \"Preview\"\r\
+        self._nameLbl = nameLbl\r\
+        local hpBg = Instance.new(\"Frame\"); hpBg.BorderSizePixel = 0; hpBg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)\r\
+        hpBg.AnchorPoint = Vector2.new(1, 0); hpBg.Position = UDim2.new(0, -3, 0, 0); hpBg.Size = UDim2.new(0, 3, 1, 0); hpBg.ZIndex = 3; hpBg.Parent = box\r\
+        local hpBar = Instance.new(\"Frame\"); hpBar.BorderSizePixel = 0; hpBar.BackgroundColor3 = Color3.fromRGB(90, 220, 90)\r\
+        hpBar.AnchorPoint = Vector2.new(0, 1); hpBar.Position = UDim2.new(0, 0, 1, 0); hpBar.Size = UDim2.new(1, 0, 0.7, 0); hpBar.ZIndex = 4; hpBar.Parent = hpBg\r\
+        self._hpBg, self._hpBar = hpBg, hpBar\r\
+\r\
+        function self:SetModel(char)\r\
+            for _, c in ipairs(self.World:GetChildren()) do if c ~= nil then c:Destroy() end end\r\
+            self.Model = nil\r\
+            if not char then return end\r\
+            local m; local prev = char.Archivable; char.Archivable = true\r\
+            pcall(function() m = char:Clone() end); char.Archivable = prev\r\
+            if not m then return end\r\
+            for _, d in ipairs(m:GetDescendants()) do if d:IsA(\"Script\") or d:IsA(\"LocalScript\") then d:Destroy() end end\r\
+            m.Parent = self.World; self.Model = m\r\
+            local ok, cf, size = pcall(function() return m:GetBoundingBox() end)\r\
+            if ok and cf then\r\
+                self._center = cf.Position; self._radius = math.max(size.Magnitude / 2, 1)\r\
+                self._dist = self._radius / math.tan(math.rad(30)) + self._radius\r\
+            end\r\
+            self._angle = 0\r\
+        end\r\
+\r\
+        function self:_apply(a)\r\
+            if not self._center then return end\r\
+            local pos = self._center + Vector3.new(math.sin(a) * self._dist, self._radius * 0.35, math.cos(a) * self._dist)\r\
+            self.Cam.CFrame = CFrame.lookAt(pos, self._center)\r\
+        end\r\
+\r\
+        function self:_step(dt)\r\
+            local show = opts.always or (flags.Suite_Preview and true or false)\r\
+            self.Root.Visible = show\r\
+            if not show or not self.Model then return end\r\
+            self._angle = (self._angle or 0) + math.rad(40) * dt\r\
+            self:_apply(self._angle)\r\
+            local t = tick()\r\
+            -- world lighting -> viewport ambient\r\
+            self.VF.Ambient = flags.World_Ambient and GV.Color.fade(flags, \"World_AmbientColor\", t) or Color3.fromRGB(150, 150, 160)\r\
+            self.VF.LightColor = flags.World_Fullbright and Color3.new(1, 1, 1) or Color3.fromRGB(255, 255, 255)\r\
+            -- chams\r\
+            local chamsOn = flags.ESP_Chams or flags.Local_SelfChams\r\
+            if chamsOn then\r\
+                if not self._chams then self._chams = Instance.new(\"Highlight\"); self._chams.Parent = self.VF; table.insert(self._made, self._chams) end\r\
+                self._chams.Adornee = self.Model; self._chams.Enabled = true\r\
+                local isSelf = flags.Local_SelfChams and true or false\r\
+                self._chams.FillColor = GV.Color.fade(flags, isSelf and \"Local_SelfChamsFill\" or \"ESP_ChamsFill\", t)\r\
+                self._chams.OutlineColor = GV.Color.fade(flags, isSelf and \"Local_SelfChamsOutline\" or \"ESP_ChamsOutline\", t)\r\
+            elseif self._chams then self._chams.Enabled = false end\r\
+            -- ESP overlay refleja los flags\r\
+            local espOn = flags.ESP_Enabled and true or false\r\
+            self._box.Visible = espOn and (flags.ESP_Box ~= false)\r\
+            self._boxStroke.Color = GV.Color.fade(flags, \"ESP_BoxColor\", t)\r\
+            self._nameLbl.Visible = espOn and (flags.ESP_Name ~= false)\r\
+            self._nameLbl.TextColor3 = GV.Color.fade(flags, \"ESP_NameColor\", t)\r\
+            self._hpBg.Visible = espOn and (flags.ESP_Health ~= false)\r\
+        end\r\
+\r\
+        table.insert(self._conns, RunService.RenderStepped:Connect(function(dt)\r\
+            local ok, err = pcall(function() self:_step(dt) end); if not ok then warn(\"[Preview] \" .. tostring(err)) end\r\
+        end))\r\
+\r\
+        function self:Unload()\r\
+            for _, c in ipairs(self._conns) do pcall(function() c:Disconnect() end) end\r\
+            for _, inst in ipairs(self._made) do pcall(function() inst:Destroy() end) end\r\
+            table.clear(self._conns); table.clear(self._made)\r\
+        end\r\
+\r\
+        local lp = Players.LocalPlayer\r\
+        if lp and lp.Character then self:SetModel(lp.Character) end\r\
+        return self\r\
+    end\r\
+    GV.Preview = Preview\r\
+end\r\
 "
 local f = loadstring(chunk, '@ui/preview.lua')(); f(GV) end
 do local chunk = "return function(GV)\r\
@@ -1661,6 +1668,8 @@ do local chunk = "return function(GV)\r\
         return {\r\
             { tab = \"Mundo\", group = \"Suite\", side = \"Left\", flag = \"Suite_FadeSpeed\", type = \"slider\",\r\
                 text = \"Velocidad fade\", min = 0.1, max = 5, default = 1, decimals = 2 },\r\
+            { tab = \"Mundo\", group = \"Suite\", side = \"Left\", flag = \"Suite_FadeMode\", type = \"dropdown\",\r\
+                text = \"Efecto fade\", values = { \"Onda\", \"Rainbow\", \"Pulso\" }, default = \"Onda\" },\r\
             { tab = \"Mundo\", group = \"Suite\", side = \"Left\", flag = \"Suite_Preview\", type = \"toggle\",\r\
                 text = \"Preview (solo Primordial)\", default = false },\r\
         }\r\
@@ -1671,275 +1680,276 @@ do local chunk = "return function(GV)\r\
 end\r\
 "
 local f = loadstring(chunk, '@schema/_helpers.lua')(); f(GV) end
-do local chunk = "return function(GV)\
-    local C = Color3.fromRGB\
-    local ACC = C(96, 130, 255)\
-    local S = {}\
-    local function add(r) table.insert(S, r) end\
-    local function color(toggle, base, text, tab, group, side, default, default2)\
-        GV.pushCF(S, { toggle = toggle, base = base, text = text, tab = tab, group = group, side = side,\
-            default = default, default2 = default2 or ACC })\
-    end\
-\
-    -- ================= Tab \"Mundo\" =================\
-    -- A. Lighting\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Enabled\", type = \"toggle\", text = \"Enable visuales\", default = false, keybind = true, master = true }\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Fullbright\", type = \"toggle\", text = \"Fullbright\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_NoShadows\", type = \"toggle\", text = \"Sin sombras\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Ambient\", type = \"toggle\", text = \"Ambient\", default = false, dependsOn = \"World_Enabled\" }\
-    color(\"World_Ambient\", \"World_AmbientColor\", \"Ambient color\", \"Mundo\", \"Lighting\", \"Left\", C(120, 120, 125))\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Brightness\", type = \"slider\", text = \"Brillo\", min = 0, max = 10, default = 3, decimals = 1, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Exposure\", type = \"slider\", text = \"Exposicion\", min = -3, max = 3, default = 0, decimals = 2, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_ColorShift\", type = \"toggle\", text = \"ColorShift\", default = false, dependsOn = \"World_Enabled\" }\
-    color(\"World_ColorShift\", \"World_ColorShiftTopColor\", \"ColorShift Top\", \"Mundo\", \"Lighting\", \"Left\", C(0, 0, 0))\
-    color(\"World_ColorShift\", \"World_ColorShiftBottomColor\", \"ColorShift Bottom\", \"Mundo\", \"Lighting\", \"Left\", C(0, 0, 0))\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_EnvDiffuse\", type = \"slider\", text = \"Env diffuse\", min = 0, max = 5, default = 1, decimals = 2, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_EnvSpecular\", type = \"slider\", text = \"Env specular\", min = 0, max = 5, default = 1, decimals = 2, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Technology\", type = \"dropdown\", text = \"Technology\", values = { \"\", \"Voxel\", \"ShadowMap\", \"Future\", \"Legacy\" }, default = \"\", dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_GeoLatitude\", type = \"slider\", text = \"Latitud geo\", min = -90, max = 90, default = 41.7, decimals = 1, dependsOn = \"World_Enabled\" }\
-    -- B. Tiempo / Sol\
-    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_ClockTime\", type = \"slider\", text = \"Hora del dia\", min = 0, max = 24, default = 12, decimals = 1, suffix = \"h\", dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_UseTimeOfDay\", type = \"toggle\", text = \"Usar TimeOfDay\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_FreezeTime\", type = \"toggle\", text = \"Congelar tiempo\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_DayNightCycle\", type = \"toggle\", text = \"Ciclo dia/noche\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_CycleSpeed\", type = \"slider\", text = \"Velocidad ciclo\", min = 0.1, max = 10, default = 1, decimals = 2, suffix = \"x\", dependsOn = \"World_DayNightCycle\" }\
-    -- J. Visibilidad\
-    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_Advanced\", type = \"toggle\", text = \"Avanzado (agresivo)\", default = false, dependsOn = \"World_Enabled\", tooltip = \"Toca el mapa; revierte al apagar\" }\
-    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_KillParticles\", type = \"toggle\", text = \"Matar particulas del mapa\", default = false, dependsOn = \"World_Advanced\" }\
-    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_ForceSmoothPlastic\", type = \"toggle\", text = \"Forzar SmoothPlastic\", default = false, dependsOn = \"World_Advanced\" }\
-    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_MapTransparent\", type = \"toggle\", text = \"Mapa transparente\", default = false, dependsOn = \"World_Advanced\" }\
-    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_MapTransparentAmount\", type = \"slider\", text = \"Transparencia\", min = 0, max = 1, default = 0.6, decimals = 2, dependsOn = \"World_MapTransparent\" }\
-    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_NoTextures\", type = \"toggle\", text = \"Sin texturas/decals\", default = false, dependsOn = \"World_Advanced\" }\
-    -- C. Fog\
-    add{ tab = \"Mundo\", group = \"Fog\", side = \"Right\", flag = \"World_NoFog\", type = \"toggle\", text = \"Sin fog\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Fog\", side = \"Right\", flag = \"World_FogStart\", type = \"slider\", text = \"Fog inicio\", min = 0, max = 2000, default = 0, suffix = \"st\", dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Fog\", side = \"Right\", flag = \"World_FogEnd\", type = \"slider\", text = \"Fog fin\", min = 100, max = 10000, default = 2500, suffix = \"st\", dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Fog\", side = \"Right\", flag = \"World_FogTint\", type = \"toggle\", text = \"Fog color\", default = false, dependsOn = \"World_Enabled\" }\
-    color(\"World_FogTint\", \"World_FogColor\", \"Fog color\", \"Mundo\", \"Fog\", \"Right\", C(190, 195, 210))\
-    -- D. Atmosphere\
-    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_Atmosphere\", type = \"toggle\", text = \"Atmosfera (reemplaza fog)\", default = false, dependsOn = \"World_Enabled\" }\
-    color(\"World_Atmosphere\", \"World_AtmColor\", \"Atm color\", \"Mundo\", \"Atmosphere\", \"Right\", C(199, 199, 199))\
-    color(\"World_Atmosphere\", \"World_AtmDecay\", \"Atm decay\", \"Mundo\", \"Atmosphere\", \"Right\", C(106, 112, 125))\
-    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_AtmDensity\", type = \"slider\", text = \"Densidad\", min = 0, max = 1, default = 0.3, decimals = 3, dependsOn = \"World_Atmosphere\" }\
-    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_AtmOffset\", type = \"slider\", text = \"Offset\", min = 0, max = 1, default = 0.25, decimals = 2, dependsOn = \"World_Atmosphere\" }\
-    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_AtmGlare\", type = \"slider\", text = \"Glare\", min = 0, max = 10, default = 0, decimals = 1, dependsOn = \"World_Atmosphere\" }\
-    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_AtmHaze\", type = \"slider\", text = \"Haze\", min = 0, max = 10, default = 0, decimals = 1, dependsOn = \"World_Atmosphere\" }\
-    -- E. Post-FX\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_Tint\", type = \"toggle\", text = \"Tinte (ColorCorrection)\", default = false, dependsOn = \"World_Enabled\" }\
-    color(\"World_Tint\", \"World_TintColor\", \"Tinte color\", \"Mundo\", \"Post-FX\", \"Right\", C(255, 255, 255))\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_TintBrightness\", type = \"slider\", text = \"Brillo\", min = -1, max = 1, default = 0, decimals = 2, dependsOn = \"World_Tint\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_TintContrast\", type = \"slider\", text = \"Contraste\", min = -1, max = 1, default = 0, decimals = 2, dependsOn = \"World_Tint\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_TintSaturation\", type = \"slider\", text = \"Saturacion\", min = -1, max = 3, default = 0, decimals = 2, dependsOn = \"World_Tint\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_RainbowHue\", type = \"toggle\", text = \"Rainbow hue\", default = false, dependsOn = \"World_Tint\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_RainbowSpeed\", type = \"slider\", text = \"Rainbow vel\", min = 0.05, max = 5, default = 1, decimals = 2, dependsOn = \"World_RainbowHue\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_Bloom\", type = \"toggle\", text = \"Bloom\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_BloomIntensity\", type = \"slider\", text = \"Intensidad\", min = 0, max = 5, default = 0.4, decimals = 2, dependsOn = \"World_Bloom\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_BloomSize\", type = \"slider\", text = \"Tamano\", min = 0, max = 56, default = 24, dependsOn = \"World_Bloom\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_BloomThreshold\", type = \"slider\", text = \"Umbral\", min = 0, max = 3, default = 0.95, decimals = 2, dependsOn = \"World_Bloom\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_SunRays\", type = \"toggle\", text = \"Rayos de sol\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_SunRaysIntensity\", type = \"slider\", text = \"Intensidad\", min = 0, max = 1, default = 0.05, decimals = 3, dependsOn = \"World_SunRays\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_SunRaysSpread\", type = \"slider\", text = \"Dispersion\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"World_SunRays\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoF\", type = \"toggle\", text = \"Depth of Field\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoFFocus\", type = \"slider\", text = \"Foco\", min = 0, max = 500, default = 25, dependsOn = \"World_DoF\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoFRadius\", type = \"slider\", text = \"Radio foco\", min = 0, max = 100, default = 10, dependsOn = \"World_DoF\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoFNear\", type = \"slider\", text = \"Near\", min = 0, max = 1, default = 0, decimals = 2, dependsOn = \"World_DoF\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoFFar\", type = \"slider\", text = \"Far\", min = 0, max = 1, default = 0.75, decimals = 2, dependsOn = \"World_DoF\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_WorldBlur\", type = \"toggle\", text = \"Blur mundo\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_WorldBlurSize\", type = \"slider\", text = \"Fuerza\", min = 0, max = 40, default = 12, dependsOn = \"World_WorldBlur\" }\
-    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_KillGamePostFX\", type = \"toggle\", text = \"Matar post-FX del juego\", default = false, dependsOn = \"World_Enabled\" }\
-\
-    -- ================= Tab \"Cielo & Clima\" =================\
-    -- F. Cielo\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_NoSky\", type = \"toggle\", text = \"Sin cuerpos celestes\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_StarCount\", type = \"slider\", text = \"Estrellas\", min = 0, max = 5000, default = 3000, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_CustomSkybox\", type = \"toggle\", text = \"Skybox custom\", default = false, dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Up\", type = \"textbox\", text = \"Up\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Dn\", type = \"textbox\", text = \"Down\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Lf\", type = \"textbox\", text = \"Left\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Rt\", type = \"textbox\", text = \"Right\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Bk\", type = \"textbox\", text = \"Back\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Ft\", type = \"textbox\", text = \"Front\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_SunTextureId\", type = \"textbox\", text = \"Sol textura\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_MoonTextureId\", type = \"textbox\", text = \"Luna textura\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_SunAngularSize\", type = \"slider\", text = \"Sol tamano\", min = 0, max = 90, default = 21, dependsOn = \"World_CustomSkybox\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_MoonAngularSize\", type = \"slider\", text = \"Luna tamano\", min = 0, max = 90, default = 11, dependsOn = \"World_CustomSkybox\" }\
-    -- G. Nubes\
-    add{ tab = \"Cielo & Clima\", group = \"Nubes\", side = \"Left\", flag = \"World_Clouds\", type = \"toggle\", text = \"Nubes custom\", default = false, dependsOn = \"World_Enabled\" }\
-    color(\"World_Clouds\", \"World_CloudColor\", \"Nubes color\", \"Cielo & Clima\", \"Nubes\", \"Left\", C(255, 255, 255))\
-    add{ tab = \"Cielo & Clima\", group = \"Nubes\", side = \"Left\", flag = \"World_NoClouds\", type = \"toggle\", text = \"Sin nubes\", default = false, dependsOn = \"World_Clouds\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Nubes\", side = \"Left\", flag = \"World_CloudCover\", type = \"slider\", text = \"Cobertura\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"World_Clouds\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Nubes\", side = \"Left\", flag = \"World_CloudDensity\", type = \"slider\", text = \"Densidad\", min = 0, max = 1, default = 0.7, decimals = 2, dependsOn = \"World_Clouds\" }\
-    -- H. Terrain / Agua\
-    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterEnable\", type = \"toggle\", text = \"Editar agua\", default = false, dependsOn = \"World_Enabled\" }\
-    color(\"World_WaterEnable\", \"World_WaterColor\", \"Agua color\", \"Cielo & Clima\", \"Terrain / Agua\", \"Right\", C(12, 84, 92))\
-    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterTransparency\", type = \"slider\", text = \"Transparencia\", min = 0, max = 1, default = 0.3, decimals = 2, dependsOn = \"World_WaterEnable\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterReflectance\", type = \"slider\", text = \"Reflectancia\", min = 0, max = 1, default = 1, decimals = 2, dependsOn = \"World_WaterEnable\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterWaveSize\", type = \"slider\", text = \"Olas tamano\", min = 0, max = 1, default = 0.15, decimals = 2, dependsOn = \"World_WaterEnable\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterWaveSpeed\", type = \"slider\", text = \"Olas velocidad\", min = 0, max = 20, default = 10, decimals = 1, dependsOn = \"World_WaterEnable\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_TerrainDecoration\", type = \"toggle\", text = \"Decoracion terrain\", default = true, dependsOn = \"World_WaterEnable\" }\
-    -- I. Clima\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_Weather\", type = \"toggle\", text = \"Clima\", default = false, keybind = true, dependsOn = \"World_Enabled\" }\
-    color(\"World_Weather\", \"World_WeatherColor\", \"Clima color\", \"Cielo & Clima\", \"Clima\", \"Right\", C(220, 230, 255))\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherMode\", type = \"dropdown\", text = \"Tipo\", values = { \"Lluvia\", \"Lluvia fuerte\", \"Nieve\", \"Niebla\", \"Ceniza\", \"Luciérnagas\", \"Custom\" }, default = \"Lluvia\", dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherCustomTex\", type = \"textbox\", text = \"Textura custom\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherTransparency\", type = \"slider\", text = \"Transparencia\", min = 0, max = 1, default = 0.35, decimals = 2, dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherGlow\", type = \"slider\", text = \"Brillo propio\", min = 0, max = 1, default = 0.15, decimals = 2, dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherDensity\", type = \"slider\", text = \"Densidad\", min = 0.1, max = 4, default = 1, decimals = 2, suffix = \"x\", dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherSpeed\", type = \"slider\", text = \"Velocidad\", min = 0.1, max = 3, default = 1, decimals = 2, suffix = \"x\", dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherSize\", type = \"slider\", text = \"Tamano\", min = 0.2, max = 4, default = 1, decimals = 2, suffix = \"x\", dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherArea\", type = \"slider\", text = \"Area\", min = 30, max = 200, default = 90, suffix = \"st\", dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherWindDir\", type = \"slider\", text = \"Viento (dir)\", min = 0, max = 360, default = 0, suffix = \"deg\", dependsOn = \"World_Weather\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_Lightning\", type = \"toggle\", text = \"Relampagos\", default = false, dependsOn = \"World_Weather\" }\
-    -- K. Presets (dropdown + boton \"Aplicar\" en el MISMO grupo, misma seccion)\
-    add{ tab = \"Cielo & Clima\", group = \"Presets\", side = \"Right\", flag = \"World_PresetSelect\", type = \"dropdown\", text = \"Preset\", values = { \"Competitivo\", \"Cinematográfico\", \"Día\", \"Noche\", \"Atardecer\", \"Niebla\" }, default = \"Competitivo\", dependsOn = \"World_Enabled\" }\
-    add{ tab = \"Cielo & Clima\", group = \"Presets\", side = \"Right\", type = \"button\", text = \"Aplicar preset\", presetAction = true }\
-\
-    GV.Schema = S\
-    GV.Modules = GV.Modules or {}\
-    GV.Modules.world = GV.Modules.world or {}\
-    GV.Modules.world.schema = S\
-end\
+do local chunk = "return function(GV)\r\
+    local C = Color3.fromRGB\r\
+    local ACC = C(96, 130, 255)\r\
+    local S = {}\r\
+    local function add(r) table.insert(S, r) end\r\
+    local function color(toggle, base, text, tab, group, side, default, default2)\r\
+        GV.pushCF(S, { toggle = toggle, base = base, text = text, tab = tab, group = group, side = side,\r\
+            default = default, default2 = default2 or ACC })\r\
+    end\r\
+\r\
+    -- ================= Tab \"Mundo\" =================\r\
+    -- A. Lighting\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Enabled\", type = \"toggle\", text = \"Enable visuales\", default = false, keybind = true, master = true }\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Fullbright\", type = \"toggle\", text = \"Fullbright\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_NoShadows\", type = \"toggle\", text = \"Sin sombras\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Ambient\", type = \"toggle\", text = \"Ambient\", default = false, dependsOn = \"World_Enabled\" }\r\
+    color(\"World_Ambient\", \"World_AmbientColor\", \"Ambient color\", \"Mundo\", \"Lighting\", \"Left\", C(120, 120, 125))\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Brightness\", type = \"slider\", text = \"Brillo\", min = 0, max = 10, default = 3, decimals = 1, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Exposure\", type = \"slider\", text = \"Exposicion\", min = -3, max = 3, default = 0, decimals = 2, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_ColorShift\", type = \"toggle\", text = \"ColorShift\", default = false, dependsOn = \"World_Enabled\" }\r\
+    color(\"World_ColorShift\", \"World_ColorShiftTopColor\", \"ColorShift Top\", \"Mundo\", \"Lighting\", \"Left\", C(0, 0, 0))\r\
+    color(\"World_ColorShift\", \"World_ColorShiftBottomColor\", \"ColorShift Bottom\", \"Mundo\", \"Lighting\", \"Left\", C(0, 0, 0))\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_EnvDiffuse\", type = \"slider\", text = \"Env diffuse\", min = 0, max = 5, default = 1, decimals = 2, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_EnvSpecular\", type = \"slider\", text = \"Env specular\", min = 0, max = 5, default = 1, decimals = 2, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_Technology\", type = \"dropdown\", text = \"Technology\", values = { \"\", \"Voxel\", \"ShadowMap\", \"Future\", \"Legacy\" }, default = \"\", dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Lighting\", side = \"Left\", flag = \"World_GeoLatitude\", type = \"slider\", text = \"Latitud geo\", min = -90, max = 90, default = 41.7, decimals = 1, dependsOn = \"World_Enabled\" }\r\
+    -- B. Tiempo / Sol\r\
+    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_ClockTime\", type = \"slider\", text = \"Hora del dia\", min = 0, max = 24, default = 12, decimals = 1, suffix = \"h\", dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_UseTimeOfDay\", type = \"toggle\", text = \"Usar TimeOfDay\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_FreezeTime\", type = \"toggle\", text = \"Congelar tiempo\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_DayNightCycle\", type = \"toggle\", text = \"Ciclo dia/noche\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Tiempo / Sol\", side = \"Left\", flag = \"World_CycleSpeed\", type = \"slider\", text = \"Velocidad ciclo\", min = 0.1, max = 10, default = 1, decimals = 2, suffix = \"x\", dependsOn = \"World_DayNightCycle\" }\r\
+    -- J. Visibilidad\r\
+    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_Advanced\", type = \"toggle\", text = \"Avanzado (agresivo)\", default = false, dependsOn = \"World_Enabled\", tooltip = \"Toca el mapa; revierte al apagar\" }\r\
+    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_KillParticles\", type = \"toggle\", text = \"Matar particulas del mapa\", default = false, dependsOn = \"World_Advanced\" }\r\
+    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_ForceSmoothPlastic\", type = \"toggle\", text = \"Forzar SmoothPlastic\", default = false, dependsOn = \"World_Advanced\" }\r\
+    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_MapTransparent\", type = \"toggle\", text = \"Mapa transparente\", default = false, dependsOn = \"World_Advanced\" }\r\
+    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_MapTransparentAmount\", type = \"slider\", text = \"Transparencia\", min = 0, max = 1, default = 0.6, decimals = 2, dependsOn = \"World_MapTransparent\" }\r\
+    add{ tab = \"Mundo\", group = \"Visibilidad\", side = \"Left\", flag = \"World_NoTextures\", type = \"toggle\", text = \"Sin texturas/decals\", default = false, dependsOn = \"World_Advanced\" }\r\
+    -- C. Fog\r\
+    add{ tab = \"Mundo\", group = \"Fog\", side = \"Right\", flag = \"World_NoFog\", type = \"toggle\", text = \"Sin fog\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Fog\", side = \"Right\", flag = \"World_FogStart\", type = \"slider\", text = \"Fog inicio\", min = 0, max = 2000, default = 0, suffix = \"st\", dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Fog\", side = \"Right\", flag = \"World_FogEnd\", type = \"slider\", text = \"Fog fin\", min = 100, max = 10000, default = 2500, suffix = \"st\", dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Fog\", side = \"Right\", flag = \"World_FogTint\", type = \"toggle\", text = \"Fog color\", default = false, dependsOn = \"World_Enabled\" }\r\
+    color(\"World_FogTint\", \"World_FogColor\", \"Fog color\", \"Mundo\", \"Fog\", \"Right\", C(190, 195, 210))\r\
+    -- D. Atmosphere\r\
+    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_Atmosphere\", type = \"toggle\", text = \"Atmosfera (reemplaza fog)\", default = false, dependsOn = \"World_Enabled\" }\r\
+    color(\"World_Atmosphere\", \"World_AtmColor\", \"Atm color\", \"Mundo\", \"Atmosphere\", \"Right\", C(199, 199, 199))\r\
+    color(\"World_Atmosphere\", \"World_AtmDecay\", \"Atm decay\", \"Mundo\", \"Atmosphere\", \"Right\", C(106, 112, 125))\r\
+    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_AtmDensity\", type = \"slider\", text = \"Densidad\", min = 0, max = 1, default = 0.3, decimals = 3, dependsOn = \"World_Atmosphere\" }\r\
+    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_AtmOffset\", type = \"slider\", text = \"Offset\", min = 0, max = 1, default = 0.25, decimals = 2, dependsOn = \"World_Atmosphere\" }\r\
+    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_AtmGlare\", type = \"slider\", text = \"Glare\", min = 0, max = 10, default = 0, decimals = 1, dependsOn = \"World_Atmosphere\" }\r\
+    add{ tab = \"Mundo\", group = \"Atmosphere\", side = \"Right\", flag = \"World_AtmHaze\", type = \"slider\", text = \"Haze\", min = 0, max = 10, default = 0, decimals = 1, dependsOn = \"World_Atmosphere\" }\r\
+    -- E. Post-FX\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_Tint\", type = \"toggle\", text = \"Tinte (ColorCorrection)\", default = false, dependsOn = \"World_Enabled\" }\r\
+    color(\"World_Tint\", \"World_TintColor\", \"Tinte color\", \"Mundo\", \"Post-FX\", \"Right\", C(255, 255, 255))\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_TintBrightness\", type = \"slider\", text = \"Brillo\", min = -1, max = 1, default = 0, decimals = 2, dependsOn = \"World_Tint\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_TintContrast\", type = \"slider\", text = \"Contraste\", min = -1, max = 1, default = 0, decimals = 2, dependsOn = \"World_Tint\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_TintSaturation\", type = \"slider\", text = \"Saturacion\", min = -1, max = 3, default = 0, decimals = 2, dependsOn = \"World_Tint\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_RainbowHue\", type = \"toggle\", text = \"Rainbow hue\", default = false, dependsOn = \"World_Tint\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_RainbowSpeed\", type = \"slider\", text = \"Rainbow vel\", min = 0.05, max = 5, default = 1, decimals = 2, dependsOn = \"World_RainbowHue\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_Bloom\", type = \"toggle\", text = \"Bloom\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_BloomIntensity\", type = \"slider\", text = \"Intensidad\", min = 0, max = 5, default = 0.4, decimals = 2, dependsOn = \"World_Bloom\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_BloomSize\", type = \"slider\", text = \"Tamano\", min = 0, max = 56, default = 24, dependsOn = \"World_Bloom\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_BloomThreshold\", type = \"slider\", text = \"Umbral\", min = 0, max = 3, default = 0.95, decimals = 2, dependsOn = \"World_Bloom\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_SunRays\", type = \"toggle\", text = \"Rayos de sol\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_SunRaysIntensity\", type = \"slider\", text = \"Intensidad\", min = 0, max = 1, default = 0.05, decimals = 3, dependsOn = \"World_SunRays\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_SunRaysSpread\", type = \"slider\", text = \"Dispersion\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"World_SunRays\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoF\", type = \"toggle\", text = \"Depth of Field\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoFFocus\", type = \"slider\", text = \"Foco\", min = 0, max = 500, default = 25, dependsOn = \"World_DoF\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoFRadius\", type = \"slider\", text = \"Radio foco\", min = 0, max = 100, default = 10, dependsOn = \"World_DoF\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoFNear\", type = \"slider\", text = \"Near\", min = 0, max = 1, default = 0, decimals = 2, dependsOn = \"World_DoF\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_DoFFar\", type = \"slider\", text = \"Far\", min = 0, max = 1, default = 0.75, decimals = 2, dependsOn = \"World_DoF\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_WorldBlur\", type = \"toggle\", text = \"Blur mundo\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_WorldBlurSize\", type = \"slider\", text = \"Fuerza\", min = 0, max = 40, default = 12, dependsOn = \"World_WorldBlur\" }\r\
+    add{ tab = \"Mundo\", group = \"Post-FX\", side = \"Right\", flag = \"World_KillGamePostFX\", type = \"toggle\", text = \"Matar post-FX del juego\", default = false, dependsOn = \"World_Enabled\" }\r\
+\r\
+    -- ================= Tab \"Cielo & Clima\" =================\r\
+    -- F. Cielo\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_NoSky\", type = \"toggle\", text = \"Sin cuerpos celestes\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_StarCount\", type = \"slider\", text = \"Estrellas\", min = 0, max = 5000, default = 3000, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_CustomSkybox\", type = \"toggle\", text = \"Skybox custom\", default = false, dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Up\", type = \"textbox\", text = \"Up\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Dn\", type = \"textbox\", text = \"Down\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Lf\", type = \"textbox\", text = \"Left\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Rt\", type = \"textbox\", text = \"Right\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Bk\", type = \"textbox\", text = \"Back\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_Skybox_Ft\", type = \"textbox\", text = \"Front\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_SunTextureId\", type = \"textbox\", text = \"Sol textura\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_MoonTextureId\", type = \"textbox\", text = \"Luna textura\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_SunAngularSize\", type = \"slider\", text = \"Sol tamano\", min = 0, max = 90, default = 21, dependsOn = \"World_CustomSkybox\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Cielo\", side = \"Left\", flag = \"World_MoonAngularSize\", type = \"slider\", text = \"Luna tamano\", min = 0, max = 90, default = 11, dependsOn = \"World_CustomSkybox\" }\r\
+    -- G. Nubes\r\
+    add{ tab = \"Cielo & Clima\", group = \"Nubes\", side = \"Left\", flag = \"World_Clouds\", type = \"toggle\", text = \"Nubes custom\", default = false, dependsOn = \"World_Enabled\" }\r\
+    color(\"World_Clouds\", \"World_CloudColor\", \"Nubes color\", \"Cielo & Clima\", \"Nubes\", \"Left\", C(255, 255, 255))\r\
+    add{ tab = \"Cielo & Clima\", group = \"Nubes\", side = \"Left\", flag = \"World_NoClouds\", type = \"toggle\", text = \"Sin nubes\", default = false, dependsOn = \"World_Clouds\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Nubes\", side = \"Left\", flag = \"World_CloudCover\", type = \"slider\", text = \"Cobertura\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"World_Clouds\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Nubes\", side = \"Left\", flag = \"World_CloudDensity\", type = \"slider\", text = \"Densidad\", min = 0, max = 1, default = 0.7, decimals = 2, dependsOn = \"World_Clouds\" }\r\
+    -- H. Terrain / Agua\r\
+    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterEnable\", type = \"toggle\", text = \"Editar agua\", default = false, dependsOn = \"World_Enabled\" }\r\
+    color(\"World_WaterEnable\", \"World_WaterColor\", \"Agua color\", \"Cielo & Clima\", \"Terrain / Agua\", \"Right\", C(12, 84, 92))\r\
+    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterTransparency\", type = \"slider\", text = \"Transparencia\", min = 0, max = 1, default = 0.3, decimals = 2, dependsOn = \"World_WaterEnable\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterReflectance\", type = \"slider\", text = \"Reflectancia\", min = 0, max = 1, default = 1, decimals = 2, dependsOn = \"World_WaterEnable\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterWaveSize\", type = \"slider\", text = \"Olas tamano\", min = 0, max = 1, default = 0.15, decimals = 2, dependsOn = \"World_WaterEnable\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_WaterWaveSpeed\", type = \"slider\", text = \"Olas velocidad\", min = 0, max = 20, default = 10, decimals = 1, dependsOn = \"World_WaterEnable\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Terrain / Agua\", side = \"Right\", flag = \"World_TerrainDecoration\", type = \"toggle\", text = \"Decoracion terrain\", default = true, dependsOn = \"World_WaterEnable\" }\r\
+    -- I. Clima\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_Weather\", type = \"toggle\", text = \"Clima\", default = false, keybind = true, dependsOn = \"World_Enabled\" }\r\
+    color(\"World_Weather\", \"World_WeatherColor\", \"Clima color\", \"Cielo & Clima\", \"Clima\", \"Right\", C(220, 230, 255))\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherMode\", type = \"dropdown\", text = \"Tipo\", values = { \"Lluvia\", \"Lluvia fuerte\", \"Nieve\", \"Niebla\", \"Ceniza\", \"Luciérnagas\", \"Custom\" }, default = \"Lluvia\", dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherCustomTex\", type = \"textbox\", text = \"Textura custom\", placeholder = \"rbxassetid://\", default = \"\", dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherTransparency\", type = \"slider\", text = \"Transparencia\", min = 0, max = 1, default = 0.35, decimals = 2, dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherGlow\", type = \"slider\", text = \"Brillo propio\", min = 0, max = 1, default = 0.15, decimals = 2, dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherDensity\", type = \"slider\", text = \"Densidad\", min = 0.1, max = 4, default = 1, decimals = 2, suffix = \"x\", dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherSpeed\", type = \"slider\", text = \"Velocidad\", min = 0.1, max = 3, default = 1, decimals = 2, suffix = \"x\", dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherSize\", type = \"slider\", text = \"Tamano\", min = 0.2, max = 4, default = 1, decimals = 2, suffix = \"x\", dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherArea\", type = \"slider\", text = \"Area\", min = 30, max = 200, default = 90, suffix = \"st\", dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_WeatherWindDir\", type = \"slider\", text = \"Viento (dir)\", min = 0, max = 360, default = 0, suffix = \"deg\", dependsOn = \"World_Weather\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Clima\", side = \"Right\", flag = \"World_Lightning\", type = \"toggle\", text = \"Relampagos\", default = false, dependsOn = \"World_Weather\" }\r\
+    -- K. Presets (dropdown + boton \"Aplicar\" en el MISMO grupo, misma seccion)\r\
+    add{ tab = \"Cielo & Clima\", group = \"Presets\", side = \"Right\", flag = \"World_PresetSelect\", type = \"dropdown\", text = \"Preset\", values = { \"Competitivo\", \"Cinematográfico\", \"Día\", \"Noche\", \"Atardecer\", \"Niebla\" }, default = \"Competitivo\", dependsOn = \"World_Enabled\" }\r\
+    add{ tab = \"Cielo & Clima\", group = \"Presets\", side = \"Right\", type = \"button\", text = \"Aplicar preset\", presetAction = true }\r\
+\r\
+    GV.Schema = S\r\
+    GV.Modules = GV.Modules or {}\r\
+    GV.Modules.world = GV.Modules.world or {}\r\
+    GV.Modules.world.schema = S\r\
+end\r\
 "
 local f = loadstring(chunk, '@schema/world.lua')(); f(GV) end
-do local chunk = "return function(GV)\
-    local C = Color3.fromRGB\
-    local ACC = C(96, 130, 255)\
-    local S = {}\
-    local function add(r) table.insert(S, r) end\
-    -- color pegado a un toggle de feature (aparece sobre el toggle). `toggle`=flag del toggle, `base`=flag del color.\
-    local function color(toggle, base, text, group, side, default, default2)\
-        GV.pushCF(S, { toggle = toggle, base = base, text = text, tab = \"ESP\", group = group, side = side,\
-            default = default, default2 = default2 or ACC })\
-    end\
-    local TAB = \"ESP\"\
-\
-    -- General (Left)\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Enabled\", type = \"toggle\", text = \"Enable ESP\", default = false, keybind = true, master = true }\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Box\", type = \"toggle\", text = \"Box\", default = true, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_Box\", \"ESP_BoxColor\", \"Box color\", \"General\", \"Left\", C(235, 235, 240))\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_BoxFilled\", type = \"toggle\", text = \"Box relleno\", default = false, dependsOn = \"ESP_Box\" }\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_BoxOutline\", type = \"toggle\", text = \"Box contorno\", default = true, dependsOn = \"ESP_Box\" }\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_BoxThickness\", type = \"slider\", text = \"Box grosor\", min = 1, max = 5, default = 1, dependsOn = \"ESP_Box\" }\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Name\", type = \"toggle\", text = \"Nombre\", default = true, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_Name\", \"ESP_NameColor\", \"Nombre color\", \"General\", \"Left\", C(235, 235, 240))\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Distance\", type = \"toggle\", text = \"Distancia\", default = true, dependsOn = \"ESP_Enabled\" }\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Health\", type = \"toggle\", text = \"Vida\", default = true, dependsOn = \"ESP_Enabled\" }\
-    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_HealthStyle\", type = \"dropdown\", text = \"Vida estilo\", values = { \"Barra\", \"Numero\", \"Barra+Numero\" }, default = \"Barra\", dependsOn = \"ESP_Health\" }\
-\
-    -- Extras (Left)\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_Skeleton\", type = \"toggle\", text = \"Esqueleto\", default = false, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_Skeleton\", \"ESP_SkeletonColor\", \"Esqueleto color\", \"Extras\", \"Left\", C(200, 200, 210))\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_HeadDot\", type = \"toggle\", text = \"Head dot\", default = false, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_HeadDot\", \"ESP_HeadDotColor\", \"Head dot color\", \"Extras\", \"Left\", C(255, 80, 80))\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_HeadDotRadius\", type = \"slider\", text = \"Head dot radio\", min = 1, max = 12, default = 3, dependsOn = \"ESP_HeadDot\" }\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_LookDir\", type = \"toggle\", text = \"Direccion de mira\", default = false, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_LookDir\", \"ESP_LookDirColor\", \"Mira color\", \"Extras\", \"Left\", C(255, 255, 120))\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_LookLength\", type = \"slider\", text = \"Mira largo\", min = 1, max = 10, default = 2, decimals = 1, dependsOn = \"ESP_LookDir\" }\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_Tracer\", type = \"toggle\", text = \"Tracer\", default = false, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_Tracer\", \"ESP_TracerColor\", \"Tracer color\", \"Extras\", \"Left\", C(96, 130, 255))\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_TracerFrom\", type = \"dropdown\", text = \"Tracer origen\", values = { \"Bottom\", \"Center\", \"Top\", \"Mouse\" }, default = \"Bottom\", dependsOn = \"ESP_Tracer\" }\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_OffScreen\", type = \"toggle\", text = \"Flechas off-screen\", default = false, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_OffScreen\", \"ESP_OffScreenColor\", \"Off-screen color\", \"Extras\", \"Left\", C(255, 170, 60))\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_OffScreenRadius\", type = \"slider\", text = \"Off-screen radio\", min = 50, max = 400, default = 200, dependsOn = \"ESP_OffScreen\" }\
-    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_OffScreenSize\", type = \"slider\", text = \"Off-screen tamano\", min = 6, max = 40, default = 16, dependsOn = \"ESP_OffScreen\" }\
-\
-    -- Chams (Right, detectable)\
-    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", type = \"label\", text = \"Chams usa Highlight = INSTANCIA detectable\" }\
-    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", flag = \"ESP_Chams\", type = \"toggle\", text = \"Chams\", default = false, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_Chams\", \"ESP_ChamsFill\", \"Chams fill\", \"Chams (detectable)\", \"Right\", C(120, 60, 200))\
-    color(\"ESP_Chams\", \"ESP_ChamsOutline\", \"Chams outline\", \"Chams (detectable)\", \"Right\", C(200, 160, 255))\
-    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", flag = \"ESP_ChamsDepthMode\", type = \"dropdown\", text = \"Depth\", values = { \"AlwaysOnTop\", \"Occluded\" }, default = \"AlwaysOnTop\", dependsOn = \"ESP_Chams\" }\
-    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", flag = \"ESP_ChamsFillTransparency\", type = \"slider\", text = \"Fill transp\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"ESP_Chams\" }\
-    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", flag = \"ESP_ChamsOutlineTransparency\", type = \"slider\", text = \"Outline transp\", min = 0, max = 1, default = 0, decimals = 2, dependsOn = \"ESP_Chams\" }\
-\
-    -- Color / Visibilidad (Right)\
-    add{ tab = TAB, group = \"Color / Visibilidad\", side = \"Right\", flag = \"ESP_ColorMode\", type = \"dropdown\", text = \"Modo de color\", values = { \"Fijo\", \"Team\", \"Visibilidad\", \"Distancia\" }, default = \"Fijo\", dependsOn = \"ESP_Enabled\" }\
-    add{ tab = TAB, group = \"Color / Visibilidad\", side = \"Right\", flag = \"ESP_VisibleCheck\", type = \"toggle\", text = \"Chequeo de visibilidad (raycast)\", default = false, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_VisibleCheck\", \"ESP_VisibleColor\", \"Visible color\", \"Color / Visibilidad\", \"Right\", C(64, 200, 96))\
-    color(\"ESP_VisibleCheck\", \"ESP_HiddenColor\", \"Oculto color\", \"Color / Visibilidad\", \"Right\", C(235, 64, 52))\
-\
-    -- Filtros (Right)\
-    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_MaxDistance\", type = \"slider\", text = \"Distancia max\", min = 50, max = 5000, default = 1200, suffix = \"st\", dependsOn = \"ESP_Enabled\" }\
-    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_PlayersOnly\", type = \"toggle\", text = \"Solo jugadores\", default = false, dependsOn = \"ESP_Enabled\" }\
-    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_TeamCheck\", type = \"toggle\", text = \"Team check\", default = false, dependsOn = \"ESP_Enabled\" }\
-    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_DeadCheck\", type = \"toggle\", text = \"Ocultar muertos\", default = true, dependsOn = \"ESP_Enabled\" }\
-    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_MaxTargets\", type = \"slider\", text = \"Targets max\", min = 1, max = 100, default = 50, dependsOn = \"ESP_Enabled\" }\
-\
-    -- Object ESP + Prefs (Right)\
-    add{ tab = TAB, group = \"Object ESP\", side = \"Right\", flag = \"ESP_Objects\", type = \"toggle\", text = \"Object ESP (perfil)\", default = false, dependsOn = \"ESP_Enabled\" }\
-    color(\"ESP_Objects\", \"ESP_ObjectColor\", \"Objetos color\", \"Object ESP\", \"Right\", C(255, 220, 90))\
-    add{ tab = TAB, group = \"Prefs\", side = \"Right\", flag = \"ESP_Font\", type = \"slider\", text = \"Fuente\", min = 0, max = 3, default = 2, dependsOn = \"ESP_Enabled\" }\
-    add{ tab = TAB, group = \"Prefs\", side = \"Right\", flag = \"ESP_TextSize\", type = \"slider\", text = \"Texto tamano\", min = 8, max = 24, default = 13, dependsOn = \"ESP_Enabled\" }\
-\
-    GV.Modules = GV.Modules or {}\
-    GV.Modules.esp = GV.Modules.esp or {}\
-    GV.Modules.esp.schema = S\
-end\
+do local chunk = "return function(GV)\r\
+    local C = Color3.fromRGB\r\
+    local ACC = C(96, 130, 255)\r\
+    local S = {}\r\
+    local function add(r) table.insert(S, r) end\r\
+    -- color pegado a un toggle de feature (aparece sobre el toggle). `toggle`=flag del toggle, `base`=flag del color.\r\
+    local function color(toggle, base, text, group, side, default, default2)\r\
+        GV.pushCF(S, { toggle = toggle, base = base, text = text, tab = \"ESP\", group = group, side = side,\r\
+            default = default, default2 = default2 or ACC })\r\
+    end\r\
+    local TAB = \"ESP\"\r\
+\r\
+    -- General (Left)\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Enabled\", type = \"toggle\", text = \"Enable ESP\", default = false, keybind = true, master = true }\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Box\", type = \"toggle\", text = \"Box\", default = true, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_Box\", \"ESP_BoxColor\", \"Box color\", \"General\", \"Left\", C(235, 235, 240))\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_BoxFilled\", type = \"toggle\", text = \"Box relleno\", default = false, dependsOn = \"ESP_Box\" }\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_BoxFillAlpha\", type = \"slider\", text = \"Relleno alpha\", min = 0, max = 1, default = 0.35, decimals = 2, dependsOn = \"ESP_BoxFilled\" }\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_BoxOutline\", type = \"toggle\", text = \"Box contorno\", default = true, dependsOn = \"ESP_Box\" }\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_BoxThickness\", type = \"slider\", text = \"Box grosor\", min = 1, max = 5, default = 1, dependsOn = \"ESP_Box\" }\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Name\", type = \"toggle\", text = \"Nombre\", default = true, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_Name\", \"ESP_NameColor\", \"Nombre color\", \"General\", \"Left\", C(235, 235, 240))\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Distance\", type = \"toggle\", text = \"Distancia\", default = true, dependsOn = \"ESP_Enabled\" }\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_Health\", type = \"toggle\", text = \"Vida\", default = true, dependsOn = \"ESP_Enabled\" }\r\
+    add{ tab = TAB, group = \"General\", side = \"Left\", flag = \"ESP_HealthStyle\", type = \"dropdown\", text = \"Vida estilo\", values = { \"Barra\", \"Numero\", \"Barra+Numero\" }, default = \"Barra\", dependsOn = \"ESP_Health\" }\r\
+\r\
+    -- Extras (Left)\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_Skeleton\", type = \"toggle\", text = \"Esqueleto\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_Skeleton\", \"ESP_SkeletonColor\", \"Esqueleto color\", \"Extras\", \"Left\", C(200, 200, 210))\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_HeadDot\", type = \"toggle\", text = \"Head dot\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_HeadDot\", \"ESP_HeadDotColor\", \"Head dot color\", \"Extras\", \"Left\", C(255, 80, 80))\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_HeadDotRadius\", type = \"slider\", text = \"Head dot radio\", min = 1, max = 12, default = 3, dependsOn = \"ESP_HeadDot\" }\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_LookDir\", type = \"toggle\", text = \"Direccion de mira\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_LookDir\", \"ESP_LookDirColor\", \"Mira color\", \"Extras\", \"Left\", C(255, 255, 120))\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_LookLength\", type = \"slider\", text = \"Mira largo\", min = 1, max = 10, default = 2, decimals = 1, dependsOn = \"ESP_LookDir\" }\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_Tracer\", type = \"toggle\", text = \"Tracer\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_Tracer\", \"ESP_TracerColor\", \"Tracer color\", \"Extras\", \"Left\", C(96, 130, 255))\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_TracerFrom\", type = \"dropdown\", text = \"Tracer origen\", values = { \"Bottom\", \"Center\", \"Top\", \"Mouse\" }, default = \"Bottom\", dependsOn = \"ESP_Tracer\" }\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_OffScreen\", type = \"toggle\", text = \"Flechas off-screen\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_OffScreen\", \"ESP_OffScreenColor\", \"Off-screen color\", \"Extras\", \"Left\", C(255, 170, 60))\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_OffScreenRadius\", type = \"slider\", text = \"Off-screen radio\", min = 50, max = 400, default = 200, dependsOn = \"ESP_OffScreen\" }\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"ESP_OffScreenSize\", type = \"slider\", text = \"Off-screen tamano\", min = 6, max = 40, default = 16, dependsOn = \"ESP_OffScreen\" }\r\
+\r\
+    -- Chams (Right, detectable)\r\
+    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", type = \"label\", text = \"Chams usa Highlight = INSTANCIA detectable\" }\r\
+    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", flag = \"ESP_Chams\", type = \"toggle\", text = \"Chams\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_Chams\", \"ESP_ChamsFill\", \"Chams fill\", \"Chams (detectable)\", \"Right\", C(120, 60, 200))\r\
+    color(\"ESP_Chams\", \"ESP_ChamsOutline\", \"Chams outline\", \"Chams (detectable)\", \"Right\", C(200, 160, 255))\r\
+    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", flag = \"ESP_ChamsDepthMode\", type = \"dropdown\", text = \"Depth\", values = { \"AlwaysOnTop\", \"Occluded\" }, default = \"AlwaysOnTop\", dependsOn = \"ESP_Chams\" }\r\
+    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", flag = \"ESP_ChamsFillTransparency\", type = \"slider\", text = \"Fill transp\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"ESP_Chams\" }\r\
+    add{ tab = TAB, group = \"Chams (detectable)\", side = \"Right\", flag = \"ESP_ChamsOutlineTransparency\", type = \"slider\", text = \"Outline transp\", min = 0, max = 1, default = 0, decimals = 2, dependsOn = \"ESP_Chams\" }\r\
+\r\
+    -- Color / Visibilidad (Right)\r\
+    add{ tab = TAB, group = \"Color / Visibilidad\", side = \"Right\", flag = \"ESP_ColorMode\", type = \"dropdown\", text = \"Modo de color\", values = { \"Fijo\", \"Team\", \"Visibilidad\", \"Distancia\" }, default = \"Fijo\", dependsOn = \"ESP_Enabled\" }\r\
+    add{ tab = TAB, group = \"Color / Visibilidad\", side = \"Right\", flag = \"ESP_VisibleCheck\", type = \"toggle\", text = \"Chequeo de visibilidad (raycast)\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_VisibleCheck\", \"ESP_VisibleColor\", \"Visible color\", \"Color / Visibilidad\", \"Right\", C(64, 200, 96))\r\
+    color(\"ESP_VisibleCheck\", \"ESP_HiddenColor\", \"Oculto color\", \"Color / Visibilidad\", \"Right\", C(235, 64, 52))\r\
+\r\
+    -- Filtros (Right)\r\
+    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_MaxDistance\", type = \"slider\", text = \"Distancia max (0=sin limite)\", min = 0, max = 5000, default = 1200, suffix = \"st\", dependsOn = \"ESP_Enabled\" }\r\
+    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_PlayersOnly\", type = \"toggle\", text = \"Solo jugadores\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_TeamCheck\", type = \"toggle\", text = \"Team check\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_DeadCheck\", type = \"toggle\", text = \"Ocultar muertos\", default = true, dependsOn = \"ESP_Enabled\" }\r\
+    add{ tab = TAB, group = \"Filtros\", side = \"Right\", flag = \"ESP_MaxTargets\", type = \"slider\", text = \"Targets max\", min = 1, max = 100, default = 50, dependsOn = \"ESP_Enabled\" }\r\
+\r\
+    -- Object ESP + Prefs (Right)\r\
+    add{ tab = TAB, group = \"Object ESP\", side = \"Right\", flag = \"ESP_Objects\", type = \"toggle\", text = \"Object ESP (perfil)\", default = false, dependsOn = \"ESP_Enabled\" }\r\
+    color(\"ESP_Objects\", \"ESP_ObjectColor\", \"Objetos color\", \"Object ESP\", \"Right\", C(255, 220, 90))\r\
+    add{ tab = TAB, group = \"Prefs\", side = \"Right\", flag = \"ESP_Font\", type = \"slider\", text = \"Fuente\", min = 0, max = 3, default = 2, dependsOn = \"ESP_Enabled\" }\r\
+    add{ tab = TAB, group = \"Prefs\", side = \"Right\", flag = \"ESP_TextSize\", type = \"slider\", text = \"Texto tamano\", min = 8, max = 24, default = 13, dependsOn = \"ESP_Enabled\" }\r\
+\r\
+    GV.Modules = GV.Modules or {}\r\
+    GV.Modules.esp = GV.Modules.esp or {}\r\
+    GV.Modules.esp.schema = S\r\
+end\r\
 "
 local f = loadstring(chunk, '@schema/esp.lua')(); f(GV) end
-do local chunk = "return function(GV)\
-    local C = Color3.fromRGB\
-    local ACC = C(96, 130, 255)\
-    local S = {}\
-    local function add(r) table.insert(S, r) end\
-    local function color(toggle, base, text, group, side, default, default2)\
-        GV.pushCF(S, { toggle = toggle, base = base, text = text, tab = \"Local\", group = group, side = side,\
-            default = default, default2 = default2 or ACC })\
-    end\
-    local TAB = \"Local\"\
-\
-    -- Camara (Left)\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_Enabled\", type = \"toggle\", text = \"Enable Local\", default = false, keybind = true, master = true }\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_FOV\", type = \"toggle\", text = \"FOV changer\", default = false, dependsOn = \"Local_Enabled\" }\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_FOVValue\", type = \"slider\", text = \"FOV\", min = 40, max = 120, default = 70, dependsOn = \"Local_FOV\" }\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_ThirdPerson\", type = \"toggle\", text = \"3ra persona\", default = false, dependsOn = \"Local_Enabled\" }\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_ThirdPersonDistance\", type = \"slider\", text = \"3ra persona distancia\", min = 5, max = 30, default = 12, dependsOn = \"Local_ThirdPerson\" }\
-    -- Custom Aspect Ratio: stretch por matriz CFrame (funciona en cualquier executor)\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_Aspect\", type = \"toggle\", text = \"Aspect ratio (stretch)\", default = false, dependsOn = \"Local_Enabled\" }\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_AspectH\", type = \"slider\", text = \"Horizontal\", min = 0.3, max = 3, default = 1, decimals = 2, dependsOn = \"Local_Aspect\" }\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_AspectV\", type = \"slider\", text = \"Vertical\", min = 0.3, max = 3, default = 1, decimals = 2, dependsOn = \"Local_Aspect\" }\
-\
-    -- Crosshair (Left)\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_Crosshair\", type = \"toggle\", text = \"Crosshair\", default = false, dependsOn = \"Local_Enabled\" }\
-    color(\"Local_Crosshair\", \"Local_CrosshairColor\", \"Crosshair color\", \"Crosshair\", \"Left\", C(0, 255, 120))\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairStyle\", type = \"dropdown\", text = \"Estilo\", values = { \"Cross\", \"Dot\", \"Circle\", \"T\" }, default = \"Cross\", dependsOn = \"Local_Crosshair\" }\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairSize\", type = \"slider\", text = \"Tamano\", min = 2, max = 40, default = 10, dependsOn = \"Local_Crosshair\" }\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairGap\", type = \"slider\", text = \"Gap\", min = 0, max = 20, default = 4, dependsOn = \"Local_Crosshair\" }\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairThickness\", type = \"slider\", text = \"Grosor\", min = 1, max = 6, default = 1, dependsOn = \"Local_Crosshair\" }\
-\
-    -- Hitmarker (Right)\
-    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_Hitmarker\", type = \"toggle\", text = \"Hitmarker (necesita hitSignal del perfil)\", default = false, dependsOn = \"Local_Enabled\" }\
-    color(\"Local_Hitmarker\", \"Local_HitmarkerColor\", \"Hitmarker color\", \"Hitmarker\", \"Right\", C(255, 255, 255))\
-    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerSize\", type = \"slider\", text = \"Tamano\", min = 2, max = 30, default = 8, dependsOn = \"Local_Hitmarker\" }\
-    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerGap\", type = \"slider\", text = \"Gap\", min = 0, max = 20, default = 4, dependsOn = \"Local_Hitmarker\" }\
-    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerDuration\", type = \"slider\", text = \"Duracion\", min = 0.05, max = 1, default = 0.3, decimals = 2, dependsOn = \"Local_Hitmarker\" }\
-\
-    -- HUD (Right)\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_Watermark\", type = \"toggle\", text = \"Watermark\", default = false, dependsOn = \"Local_Enabled\" }\
-    color(\"Local_Watermark\", \"Local_WatermarkColor\", \"Watermark color\", \"HUD\", \"Right\", C(235, 235, 240))\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_FPS\", type = \"toggle\", text = \"  FPS\", default = true, dependsOn = \"Local_Watermark\" }\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Ping\", type = \"toggle\", text = \"  ping\", default = true, dependsOn = \"Local_Watermark\" }\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Name\", type = \"toggle\", text = \"  nombre\", default = true, dependsOn = \"Local_Watermark\" }\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Time\", type = \"toggle\", text = \"  hora\", default = false, dependsOn = \"Local_Watermark\" }\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WatermarkX\", type = \"slider\", text = \"Watermark X\", min = 0, max = 2000, default = 10, dependsOn = \"Local_Watermark\" }\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WatermarkY\", type = \"slider\", text = \"Watermark Y\", min = 0, max = 1200, default = 8, dependsOn = \"Local_Watermark\" }\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindList\", type = \"toggle\", text = \"Lista de keybinds\", default = false, dependsOn = \"Local_Enabled\" }\
-    color(\"Local_KeybindList\", \"Local_KeybindColor\", \"Keybinds color\", \"HUD\", \"Right\", C(235, 235, 240))\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindX\", type = \"slider\", text = \"Keybinds X\", min = 0, max = 2000, default = 10, dependsOn = \"Local_KeybindList\" }\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindY\", type = \"slider\", text = \"Keybinds Y\", min = 0, max = 1200, default = 120, dependsOn = \"Local_KeybindList\" }\
-\
-    -- Extras (Right)\
-    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_AntiFlash\", type = \"toggle\", text = \"Anti-flash\", default = false, dependsOn = \"Local_Enabled\" }\
-    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_AntiSmoke\", type = \"toggle\", text = \"Anti-humo (necesita perfil)\", default = false, dependsOn = \"Local_Enabled\" }\
-    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_SelfChams\", type = \"toggle\", text = \"Self-chams (Highlight, detectable)\", default = false, dependsOn = \"Local_Enabled\" }\
-    color(\"Local_SelfChams\", \"Local_SelfChamsFill\", \"Self-chams fill\", \"Extras\", \"Right\", C(0, 200, 255))\
-    color(\"Local_SelfChams\", \"Local_SelfChamsOutline\", \"Self-chams outline\", \"Extras\", \"Right\", C(180, 240, 255))\
-    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_SelfChamsFillTransparency\", type = \"slider\", text = \"Self-chams transp\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"Local_SelfChams\" }\
-\
-    GV.Modules = GV.Modules or {}\
-    GV.Modules.selffx = GV.Modules.selffx or {}\
-    GV.Modules.selffx.schema = S\
-end\
+do local chunk = "return function(GV)\r\
+    local C = Color3.fromRGB\r\
+    local ACC = C(96, 130, 255)\r\
+    local S = {}\r\
+    local function add(r) table.insert(S, r) end\r\
+    local function color(toggle, base, text, group, side, default, default2)\r\
+        GV.pushCF(S, { toggle = toggle, base = base, text = text, tab = \"Local\", group = group, side = side,\r\
+            default = default, default2 = default2 or ACC })\r\
+    end\r\
+    local TAB = \"Local\"\r\
+\r\
+    -- Camara (Left)\r\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_Enabled\", type = \"toggle\", text = \"Enable Local\", default = false, keybind = true, master = true }\r\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_FOV\", type = \"toggle\", text = \"FOV changer\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_FOVValue\", type = \"slider\", text = \"FOV\", min = 40, max = 120, default = 70, dependsOn = \"Local_FOV\" }\r\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_ThirdPerson\", type = \"toggle\", text = \"3ra persona\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_ThirdPersonDistance\", type = \"slider\", text = \"3ra persona distancia\", min = 5, max = 30, default = 12, dependsOn = \"Local_ThirdPerson\" }\r\
+    -- Custom Aspect Ratio: stretch por matriz CFrame (funciona en cualquier executor)\r\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_Aspect\", type = \"toggle\", text = \"Aspect ratio (stretch)\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_AspectH\", type = \"slider\", text = \"Horizontal\", min = 0.3, max = 3, default = 1, decimals = 2, dependsOn = \"Local_Aspect\" }\r\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_AspectV\", type = \"slider\", text = \"Vertical\", min = 0.3, max = 3, default = 1, decimals = 2, dependsOn = \"Local_Aspect\" }\r\
+\r\
+    -- Crosshair (Left)\r\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_Crosshair\", type = \"toggle\", text = \"Crosshair\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    color(\"Local_Crosshair\", \"Local_CrosshairColor\", \"Crosshair color\", \"Crosshair\", \"Left\", C(0, 255, 120))\r\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairStyle\", type = \"dropdown\", text = \"Estilo\", values = { \"Cross\", \"Dot\", \"Circle\", \"T\" }, default = \"Cross\", dependsOn = \"Local_Crosshair\" }\r\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairSize\", type = \"slider\", text = \"Tamano\", min = 2, max = 40, default = 10, dependsOn = \"Local_Crosshair\" }\r\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairGap\", type = \"slider\", text = \"Gap\", min = 0, max = 20, default = 4, dependsOn = \"Local_Crosshair\" }\r\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairThickness\", type = \"slider\", text = \"Grosor\", min = 1, max = 6, default = 1, dependsOn = \"Local_Crosshair\" }\r\
+\r\
+    -- Hitmarker (Right)\r\
+    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_Hitmarker\", type = \"toggle\", text = \"Hitmarker (necesita hitSignal del perfil)\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    color(\"Local_Hitmarker\", \"Local_HitmarkerColor\", \"Hitmarker color\", \"Hitmarker\", \"Right\", C(255, 255, 255))\r\
+    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerSize\", type = \"slider\", text = \"Tamano\", min = 2, max = 30, default = 8, dependsOn = \"Local_Hitmarker\" }\r\
+    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerGap\", type = \"slider\", text = \"Gap\", min = 0, max = 20, default = 4, dependsOn = \"Local_Hitmarker\" }\r\
+    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerDuration\", type = \"slider\", text = \"Duracion\", min = 0.05, max = 1, default = 0.3, decimals = 2, dependsOn = \"Local_Hitmarker\" }\r\
+\r\
+    -- HUD (Right)\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_Watermark\", type = \"toggle\", text = \"Watermark\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    color(\"Local_Watermark\", \"Local_WatermarkColor\", \"Watermark color\", \"HUD\", \"Right\", C(235, 235, 240))\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_FPS\", type = \"toggle\", text = \"  FPS\", default = true, dependsOn = \"Local_Watermark\" }\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Ping\", type = \"toggle\", text = \"  ping\", default = true, dependsOn = \"Local_Watermark\" }\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Name\", type = \"toggle\", text = \"  nombre\", default = true, dependsOn = \"Local_Watermark\" }\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Time\", type = \"toggle\", text = \"  hora\", default = false, dependsOn = \"Local_Watermark\" }\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WatermarkX\", type = \"slider\", text = \"Watermark X\", min = 0, max = 2000, default = 10, dependsOn = \"Local_Watermark\" }\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WatermarkY\", type = \"slider\", text = \"Watermark Y\", min = 0, max = 1200, default = 8, dependsOn = \"Local_Watermark\" }\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindList\", type = \"toggle\", text = \"Lista de keybinds\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    color(\"Local_KeybindList\", \"Local_KeybindColor\", \"Keybinds color\", \"HUD\", \"Right\", C(235, 235, 240))\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindX\", type = \"slider\", text = \"Keybinds X\", min = 0, max = 2000, default = 10, dependsOn = \"Local_KeybindList\" }\r\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindY\", type = \"slider\", text = \"Keybinds Y\", min = 0, max = 1200, default = 120, dependsOn = \"Local_KeybindList\" }\r\
+\r\
+    -- Extras (Right)\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_AntiFlash\", type = \"toggle\", text = \"Anti-flash\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_AntiSmoke\", type = \"toggle\", text = \"Anti-humo (necesita perfil)\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_SelfChams\", type = \"toggle\", text = \"Self-chams (Highlight, detectable)\", default = false, dependsOn = \"Local_Enabled\" }\r\
+    color(\"Local_SelfChams\", \"Local_SelfChamsFill\", \"Self-chams fill\", \"Extras\", \"Right\", C(0, 200, 255))\r\
+    color(\"Local_SelfChams\", \"Local_SelfChamsOutline\", \"Self-chams outline\", \"Extras\", \"Right\", C(180, 240, 255))\r\
+    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_SelfChamsFillTransparency\", type = \"slider\", text = \"Self-chams transp\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"Local_SelfChams\" }\r\
+\r\
+    GV.Modules = GV.Modules or {}\r\
+    GV.Modules.selffx = GV.Modules.selffx or {}\r\
+    GV.Modules.selffx.schema = S\r\
+end\r\
 "
 local f = loadstring(chunk, '@schema/local.lua')(); f(GV) end
 do local chunk = "return function(GV)\r\
@@ -2080,6 +2090,14 @@ do local chunk = "return function(GV)\r\
             end\r\
         end\r\
         GV.Renderer.build(adapter, Window, schema, bag)\r\
+        -- keybind-list generico: features con keybind del schema (para el HUD de SelfFX)\r\
+        if suite.modules.selffx then\r\
+            local kbl = {}\r\
+            for _, r in ipairs(schema) do\r\
+                if r.keybind and r.text then table.insert(kbl, { name = r.text, flag = r.flag }) end\r\
+            end\r\
+            suite.modules.selffx._keybindList = kbl\r\
+        end\r\
         for _, inst in pairs(suite.modules) do inst:Init() end\r\
         -- Preview viewport: solo si el adapter lo soporta (Primordial). ClaudeUI = 0 instancias.\r\
         if adapter.supportsPreview and opts.preview ~= false and GV.Preview then\r\
