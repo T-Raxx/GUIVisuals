@@ -73,6 +73,49 @@ return function(GV)
     -- 3ra persona genérica (best-effort): sin provider no forzamos; placeholder para L5.
     function SelfFX:_thirdPersonGeneric(cam) end
 
+    -- Crosshair (Drawing centrado en pantalla)
+    function SelfFX:_makeCrosshair()
+        if self._cross then return self._cross end
+        self._cross = {
+            top = self:_draw("Line", { Thickness = 1 }),
+            bottom = self:_draw("Line", { Thickness = 1 }),
+            left = self:_draw("Line", { Thickness = 1 }),
+            right = self:_draw("Line", { Thickness = 1 }),
+            dot = self:_draw("Square", { Filled = true }),
+            circle = self:_draw("Circle", { Filled = false, NumSides = 32 }),
+        }
+        return self._cross
+    end
+
+    function SelfFX:_applyCrosshair(t)
+        local c = self:_makeCrosshair()
+        for _, o in pairs(c) do o.Visible = false end
+        if not self:_flag("Crosshair", false) then return end
+        local cam = self.Services.Workspace.CurrentCamera
+        if not cam then return end
+        local vp = cam.ViewportSize
+        local cx, cy = vp.X / 2, vp.Y / 2
+        local col = GV.Color.fade(self.Flags, "Local_CrosshairColor", t)
+        local style = self:_flag("CrosshairStyle", "Cross")
+        local gap = self:_flag("CrosshairGap", 4)
+        local size = self:_flag("CrosshairSize", 10)
+        local th = self:_flag("CrosshairThickness", 1)
+        local function line(o, fx, fy, tx, ty)
+            o.Visible = true; o.From = Vector2.new(fx, fy); o.To = Vector2.new(tx, ty); o.Color = col; o.Thickness = th; o.ZIndex = 10
+        end
+        if style == "Cross" or style == "T" then
+            line(c.left, cx - gap - size, cy, cx - gap, cy)
+            line(c.right, cx + gap, cy, cx + gap + size, cy)
+            line(c.bottom, cx, cy + gap, cx, cy + gap + size)
+            if style == "Cross" then line(c.top, cx, cy - gap - size, cx, cy - gap) end
+        elseif style == "Dot" then
+            local d = math.max(2, size / 3)
+            c.dot.Visible = true; c.dot.Size = Vector2.new(d, d); c.dot.Position = Vector2.new(cx - d / 2, cy - d / 2); c.dot.Color = col; c.dot.ZIndex = 10
+        elseif style == "Circle" then
+            c.circle.Visible = true; c.circle.Position = Vector2.new(cx, cy); c.circle.Radius = size; c.circle.Color = col; c.circle.Thickness = th; c.circle.ZIndex = 10
+        end
+    end
+
     function SelfFX:_off()
         self._wasOn = false
         for _, o in ipairs(self.Drawings) do pcall(function() o.Visible = false end) end
@@ -86,7 +129,9 @@ return function(GV)
             return
         end
         self._wasOn = true
+        local t = tick()
         self:_applyCamera()
+        self:_applyCrosshair(t)
     end
 
     function SelfFX:Init()
