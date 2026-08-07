@@ -21,6 +21,13 @@ return function(GV)
         return host[m](host, flag, opts)
     end
     function A.Depend() end -- no-op: en ClaudeUI la dependencia se resuelve por nesting al crear
+    -- colorpicker pegado a un toggle
+    function A.AttachColor(toggleHandle, flag, opts)
+        if toggleHandle and type(toggleHandle.AddColorPicker) == "function" then
+            return toggleHandle:AddColorPicker(flag, opts)
+        end
+        return { flag = flag }
+    end
 
     GV.Adapters.claudeui = A
 end

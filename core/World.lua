@@ -111,6 +111,7 @@ return function(GV)
             pcall(function() if inst:IsA("PostEffect") then inst.Enabled = false end end)
         end
         self:_killAtmosphere() -- destruir, no Density=0: si queda, mata el fog
+        self:_restoreVis()
         self:_restoreAll()
     end
 
@@ -146,16 +147,18 @@ return function(GV)
             self:_set(L, "Ambient", WHITE); self:_set(L, "OutdoorAmbient", WHITE)
             self:_set(L, "Brightness", 1); self:_set(L, "GlobalShadows", false)
         else
-            local amb = GV.Color.fade(self.Flags, "World_Ambient", tick())
-            self:_set(L, "Ambient", amb)
-            local oa = self.Flags["World_OutdoorAmbient"] and GV.Color.fade(self.Flags, "World_OutdoorAmbient", tick()) or amb
-            self:_set(L, "OutdoorAmbient", oa)
+            if self:_flag("World_Ambient", false) then
+                local amb = GV.Color.fade(self.Flags, "World_AmbientColor", tick())
+                self:_set(L, "Ambient", amb); self:_set(L, "OutdoorAmbient", amb)
+            end
             self:_set(L, "Brightness", self:_flag("World_Brightness", 3))
             self:_set(L, "GlobalShadows", not self:_flag("World_NoShadows", false))
         end
         self:_set(L, "ExposureCompensation", self:_flag("World_Exposure", 0))
-        self:_set(L, "ColorShift_Top", GV.Color.fade(self.Flags, "World_ColorShiftTop", tick()))
-        self:_set(L, "ColorShift_Bottom", GV.Color.fade(self.Flags, "World_ColorShiftBottom", tick()))
+        if self:_flag("World_ColorShift", false) then
+            self:_set(L, "ColorShift_Top", GV.Color.fade(self.Flags, "World_ColorShiftTopColor", tick()))
+            self:_set(L, "ColorShift_Bottom", GV.Color.fade(self.Flags, "World_ColorShiftBottomColor", tick()))
+        end
         self:_set(L, "EnvironmentDiffuseScale", self:_flag("World_EnvDiffuse", 1))
         self:_set(L, "EnvironmentSpecularScale", self:_flag("World_EnvSpecular", 1))
         self:_set(L, "GeographicLatitude", self:_flag("World_GeoLatitude", 41.733))
@@ -192,7 +195,9 @@ return function(GV)
         else
             self:_set(L, "FogStart", self:_flag("World_FogStart", 0))
             self:_set(L, "FogEnd", self:_flag("World_FogEnd", 2500))
-            self:_set(L, "FogColor", GV.Color.fade(self.Flags, "World_FogColor", tick()))
+            if self:_flag("World_FogTint", false) then
+                self:_set(L, "FogColor", GV.Color.fade(self.Flags, "World_FogColor", tick()))
+            end
         end
         if self:_flag("World_Atmosphere", false) then
             local a = self:_fx("Atmosphere")
@@ -401,27 +406,51 @@ return function(GV)
         end
     end
 
-    -- J. Visibilidad (agresivo). Gateado tras World_Advanced. Usa self._mapFilter del perfil.
+    -- J. Visibilidad (agresivo). Memoria PROPIA (self._visOrig) que revierte por-feature al apagar
+    -- el toggle (no solo al apagar el master). Gateado tras World_Advanced + mapFilter del perfil.
+    function World:_visRemember(obj, prop)
+        local m = self._visOrig[obj]; if not m then m = {}; self._visOrig[obj] = m end
+        if m[prop] == nil then local ok, cur = pcall(function() return obj[prop] end); if ok then m[prop] = cur end end
+    end
+    function World:_visRestore(obj, prop)
+        local m = self._visOrig[obj]
+        if m and m[prop] ~= nil then pcall(function() obj[prop] = m[prop] end); m[prop] = nil end
+    end
+    function World:_restoreVis()
+        for obj, props in pairs(self._visOrig or {}) do
+            for prop, val in pairs(props) do pcall(function() obj[prop] = val end) end
+        end
+        self._visOrig = {}
+    end
+
     function World:_applyVisibility()
-        if not self:_flag("World_Advanced", false) then return end
-        local killP  = self:_flag("World_KillParticles", false)
-        local smooth = self:_flag("World_ForceSmoothPlastic", false)
-        local tr     = self:_flag("World_MapTransparent", false)
-        local noTex  = self:_flag("World_NoTextures", false)
-        if not (killP or smooth or tr or noTex) then return end
+        self._visOrig = self._visOrig or {}
+        local adv = self:_flag("World_Advanced", false)
+        local killP  = adv and self:_flag("World_KillParticles", false)
+        local smooth = adv and self:_flag("World_ForceSmoothPlastic", false)
+        local tr     = adv and self:_flag("World_MapTransparent", false)
+        local noTex  = adv and self:_flag("World_NoTextures", false)
+        if not (killP or smooth or tr or noTex) then
+            if next(self._visOrig) then self:_restoreVis() end -- todo apagado -> revertir
+            return
+        end
         local amount = self:_flag("World_MapTransparentAmount", 0.6)
         local filter = self._mapFilter
         local ok, list = pcall(function() return self.Services.Workspace:GetDescendants() end)
         if not ok or not list then return end
         for _, d in ipairs(list) do
             if not (filter and filter(d)) then
-                if killP and (d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail")) then
-                    self:_set(d, "Enabled", false)
+                if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+                    if killP then self:_visRemember(d, "Enabled"); if d.Enabled then d.Enabled = false end
+                    else self:_visRestore(d, "Enabled") end
                 elseif d:IsA("BasePart") then
-                    if smooth then self:_set(d, "Material", Enum.Material.SmoothPlastic) end
-                    if tr and d.Transparency < amount then self:_set(d, "Transparency", amount) end
-                elseif noTex and (d:IsA("Decal") or d:IsA("Texture")) then
-                    self:_set(d, "Transparency", 1)
+                    if smooth then self:_visRemember(d, "Material"); if d.Material ~= Enum.Material.SmoothPlastic then d.Material = Enum.Material.SmoothPlastic end
+                    else self:_visRestore(d, "Material") end
+                    if tr then self:_visRemember(d, "Transparency"); if d.Transparency < amount then d.Transparency = amount end
+                    else self:_visRestore(d, "Transparency") end
+                elseif d:IsA("Decal") or d:IsA("Texture") then
+                    if noTex then self:_visRemember(d, "Transparency"); if d.Transparency < 1 then d.Transparency = 1 end
+                    else self:_visRestore(d, "Transparency") end
                 end
             end
         end
@@ -434,7 +463,7 @@ return function(GV)
         ["Día"]             = { World_Enabled = true, World_ClockTime = 13, World_Fullbright = false, World_NoFog = true },
         Noche               = { World_Enabled = true, World_ClockTime = 0, World_Brightness = 1, World_Fullbright = false },
         Atardecer           = { World_Enabled = true, World_ClockTime = 17.5, World_Atmosphere = true, World_AtmDensity = 0.4, World_AtmColor = Color3.fromRGB(255, 170, 120) },
-        Niebla              = { World_Enabled = true, World_NoFog = false, World_FogStart = 0, World_FogEnd = 180, World_FogColor = Color3.fromRGB(180, 185, 195) },
+        Niebla              = { World_Enabled = true, World_NoFog = false, World_FogStart = 0, World_FogEnd = 180, World_FogTint = true, World_FogColor = Color3.fromRGB(180, 185, 195) },
     }
     function World:ApplyPreset(name)
         local p = PRESETS[name]; if not p then return end

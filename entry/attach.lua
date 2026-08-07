@@ -1,15 +1,4 @@
 return function(GV)
-    -- filas de accion que necesitan la instancia (presets de World)
-    local function presetRows(bag)
-        return {
-            { tab = "Cielo & Clima", group = "Presets", side = "Right", type = "button", text = "Aplicar preset",
-                action = function()
-                    local w = bag.__suite and bag.__suite.modules.world
-                    if w then w:ApplyPreset(w:Get("World_PresetSelect")) end
-                end },
-        }
-    end
-
     -- GV.Attach(Library, Window, opts) -> suite
     -- opts: { adapter, modules={"world",...}, profile, services, flags }
     function GV.Attach(Library, Window, opts)
@@ -41,9 +30,6 @@ return function(GV)
                 suite.modules[name] = inst
                 for _, r in ipairs(def.schema or {}) do table.insert(schema, r) end
             end
-        end
-        if suite.modules.world then
-            for _, r in ipairs(presetRows(bag)) do table.insert(schema, r) end
         end
         GV.Renderer.build(adapter, Window, schema, bag)
         for _, inst in pairs(suite.modules) do inst:Init() end

@@ -13,7 +13,7 @@ return function(GV)
     function Preview.mount(suite, opts)
         opts = opts or {}
         local flags = suite.flags
-        local self = { suite = suite, _made = {}, _conns = {} }
+        local self = { suite = suite, _made = {}, _conns = {}, _grid = {} }
 
         local gui = Instance.new("ScreenGui")
         gui.Name = "PUIpv_" .. tostring(math.random(1e5, 9e5))
@@ -23,8 +23,8 @@ return function(GV)
         local root = Instance.new("Frame")
         root.Size = UDim2.fromOffset(260, 320)
         root.AnchorPoint = Vector2.new(1, 0.5)
-        root.Position = UDim2.new(1, -12, 0.5, 0) -- dockeado al borde derecho (draggable), al lado de la UI
-        root.BackgroundColor3 = Color3.fromRGB(20, 20, 24); root.BorderSizePixel = 0; root.Parent = gui
+        root.Position = UDim2.new(1, -12, 0.5, 0)
+        root.BackgroundColor3 = Color3.fromRGB(18, 20, 26); root.BorderSizePixel = 0; root.Parent = gui
         Instance.new("UICorner", root).CornerRadius = UDim.new(0, 8)
         local st = Instance.new("UIStroke", root); st.Color = Color3.fromRGB(8, 8, 10); st.Thickness = 1
         self.Root = root
@@ -47,36 +47,61 @@ return function(GV)
             end
         end))
 
+        -- ViewportFrame estilo BLUEPRINT: fondo negro, grid gris 3D detras (en el WorldModel).
         local vf = Instance.new("ViewportFrame")
         vf.Position = UDim2.fromOffset(8, 32); vf.Size = UDim2.new(1, -16, 1, -40)
-        vf.BackgroundColor3 = Color3.fromRGB(6, 10, 6); vf.BorderSizePixel = 0
-        vf.Ambient = Color3.fromRGB(170, 170, 175); vf.LightColor = Color3.fromRGB(255, 255, 255)
+        vf.BackgroundColor3 = Color3.fromRGB(4, 6, 10); vf.BorderSizePixel = 0
+        vf.Ambient = Color3.fromRGB(150, 150, 160); vf.LightColor = Color3.fromRGB(255, 255, 255)
         vf.LightDirection = Vector3.new(-0.4, -1, -0.5); vf.Parent = root
         Instance.new("UICorner", vf).CornerRadius = UDim.new(0, 6)
         local cam = Instance.new("Camera"); cam.Parent = vf; vf.CurrentCamera = cam
         local world = Instance.new("WorldModel"); world.Parent = vf
         self.VF, self.Cam, self.World = vf, cam, world
 
-        -- box overlay (borde ESP representativo, sobre el 3D)
+        -- overlay ESP: box + nombre + healthbar (sobre el 3D)
         local box = Instance.new("Frame"); box.BackgroundTransparency = 1; box.BorderSizePixel = 0
         box.AnchorPoint = Vector2.new(0.5, 0.5); box.Position = UDim2.new(0.5, 0, 0.5, 6)
-        box.Size = UDim2.fromOffset(66, 150); box.ZIndex = 3; box.Parent = vf
+        box.Size = UDim2.fromOffset(64, 150); box.ZIndex = 3; box.Parent = vf
         local boxStroke = Instance.new("UIStroke", box); boxStroke.Thickness = 1.5; boxStroke.Color = Color3.fromRGB(0, 255, 120)
         self._box, self._boxStroke = box, boxStroke
+        local nameLbl = Instance.new("TextLabel"); nameLbl.BackgroundTransparency = 1; nameLbl.Font = Enum.Font.Gotham
+        nameLbl.TextSize = 12; nameLbl.AnchorPoint = Vector2.new(0.5, 1); nameLbl.Position = UDim2.new(0.5, 0, 0, -1)
+        nameLbl.Size = UDim2.new(1, 0, 0, 14); nameLbl.ZIndex = 4; nameLbl.Parent = box; nameLbl.Text = "Preview"
+        self._nameLbl = nameLbl
+        local hpBg = Instance.new("Frame"); hpBg.BorderSizePixel = 0; hpBg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        hpBg.AnchorPoint = Vector2.new(1, 0); hpBg.Position = UDim2.new(0, -3, 0, 0); hpBg.Size = UDim2.new(0, 3, 1, 0); hpBg.ZIndex = 3; hpBg.Parent = box
+        local hpBar = Instance.new("Frame"); hpBar.BorderSizePixel = 0; hpBar.BackgroundColor3 = Color3.fromRGB(90, 220, 90)
+        hpBar.AnchorPoint = Vector2.new(0, 1); hpBar.Position = UDim2.new(0, 0, 1, 0); hpBar.Size = UDim2.new(1, 0, 0.7, 0); hpBar.ZIndex = 4; hpBar.Parent = hpBg
+        self._hpBg, self._hpBar = hpBg, hpBar
 
-        -- matrix rain (columnas verdes low-alpha delante del modelo)
-        self._matrix = {}
-        for i = 1, 10 do
-            local l = Instance.new("TextLabel"); l.BackgroundTransparency = 1; l.Font = Enum.Font.Code
-            l.TextSize = 12; l.TextColor3 = Color3.fromRGB(0, 255, 80); l.TextTransparency = 0.55
-            l.Size = UDim2.fromOffset(12, 220); l.TextYAlignment = Enum.TextYAlignment.Top; l.Text = ""
-            l.Position = UDim2.fromScale((i - 0.5) / 10, math.random()); l.ZIndex = 2; l.Parent = vf
-            table.insert(self._matrix, l)
+        function self:_buildGrid()
+            for _, p in ipairs(self._grid) do pcall(function() p:Destroy() end) end
+            self._grid = {}
+            if not self._center then return end
+            local ext = math.max(self._radius * 2.2, 6)
+            local step = ext / 5
+            local y = self._center.Y - self._radius * 1.05
+            local col = Color3.fromRGB(70, 90, 110)
+            for i = -5, 5 do
+                for _, axis in ipairs({ "X", "Z" }) do
+                    local p = Instance.new("Part"); p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
+                    p.Material = Enum.Material.Neon; p.Color = col
+                    if axis == "X" then
+                        p.Size = Vector3.new(ext * 2, 0.04, 0.06)
+                        p.CFrame = CFrame.new(self._center.X, y, self._center.Z + i * step)
+                    else
+                        p.Size = Vector3.new(0.06, 0.04, ext * 2)
+                        p.CFrame = CFrame.new(self._center.X + i * step, y, self._center.Z)
+                    end
+                    p.Parent = self.World
+                    table.insert(self._grid, p)
+                end
+            end
         end
 
         function self:SetModel(char)
-            for _, c in ipairs(self.World:GetChildren()) do c:Destroy() end
-            self.Model = nil
+            for _, c in ipairs(self.World:GetChildren()) do if c ~= nil then c:Destroy() end end
+            self._grid = {}; self.Model = nil
             if not char then return end
             local m; local prev = char.Archivable; char.Archivable = true
             pcall(function() m = char:Clone() end); char.Archivable = prev
@@ -89,6 +114,7 @@ return function(GV)
                 self._dist = self._radius / math.tan(math.rad(30)) + self._radius
             end
             self._angle = 0
+            self:_buildGrid()
         end
 
         function self:_apply(a)
@@ -104,10 +130,10 @@ return function(GV)
             self._angle = (self._angle or 0) + math.rad(40) * dt
             self:_apply(self._angle)
             local t = tick()
-            -- world lighting -> viewport
-            self.VF.Ambient = GV.Color.fade(flags, "World_Ambient", t)
+            -- world lighting -> viewport ambient
+            self.VF.Ambient = flags.World_Ambient and GV.Color.fade(flags, "World_AmbientColor", t) or Color3.fromRGB(150, 150, 160)
             self.VF.LightColor = flags.World_Fullbright and Color3.new(1, 1, 1) or Color3.fromRGB(255, 255, 255)
-            -- chams (ESP o self-chams) sobre el clone
+            -- chams
             local chamsOn = flags.ESP_Chams or flags.Local_SelfChams
             if chamsOn then
                 if not self._chams then self._chams = Instance.new("Highlight"); self._chams.Parent = self.VF; table.insert(self._made, self._chams) end
@@ -116,18 +142,13 @@ return function(GV)
                 self._chams.FillColor = GV.Color.fade(flags, isSelf and "Local_SelfChamsFill" or "ESP_ChamsFill", t)
                 self._chams.OutlineColor = GV.Color.fade(flags, isSelf and "Local_SelfChamsOutline" or "ESP_ChamsOutline", t)
             elseif self._chams then self._chams.Enabled = false end
-            -- box overlay color (representativo)
-            self._box.Visible = flags.ESP_Box ~= false
+            -- ESP overlay refleja los flags
+            local espOn = flags.ESP_Enabled and true or false
+            self._box.Visible = espOn and (flags.ESP_Box ~= false)
             self._boxStroke.Color = GV.Color.fade(flags, "ESP_BoxColor", t)
-            -- matrix rain
-            for i, l in ipairs(self._matrix) do
-                local y = (l.Position.Y.Scale + dt * (0.15 + (i % 3) * 0.08)) % 1.3 - 0.3
-                l.Position = UDim2.fromScale(l.Position.X.Scale, y)
-                if math.floor(t * 6 + i) % 3 == 0 then
-                    local s = {}; for k = 1, 9 do s[k] = string.char(48 + (i * 7 + k * 3) % 10) end
-                    l.Text = table.concat(s, "\n")
-                end
-            end
+            self._nameLbl.Visible = espOn and (flags.ESP_Name ~= false)
+            self._nameLbl.TextColor3 = GV.Color.fade(flags, "ESP_NameColor", t)
+            self._hpBg.Visible = espOn and (flags.ESP_Health ~= false)
         end
 
         table.insert(self._conns, RunService.RenderStepped:Connect(function(dt)

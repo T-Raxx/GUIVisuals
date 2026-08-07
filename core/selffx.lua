@@ -63,11 +63,23 @@ return function(GV)
             if self._provider and self._provider.setThirdPerson then self._provider.setThirdPerson(true)
             else self:_thirdPersonGeneric() end
         end
-        local am = self:_flag("AspectMode", "Off")
-        if am ~= "Off" then
-            pcall(function() self:_set(cam, "FieldOfViewMode", Enum.FieldOfViewMode[am]) end)
-            if am == "MaxAxis" then self:_set(cam, "MaxAxisFieldOfView", self:_flag("MaxAxisFOV", 90)) end
-        end
+    end
+
+    -- Custom Aspect Ratio: stretch por matriz CFrame no-ortonormal (escala Right/Up de la camara).
+    -- Funciona en CUALQUIER executor (no depende de ViewportSize). Se aplica DESPUES de la camara
+    -- (BindToRenderStep Camera+1); reconstruye desde los vectores actuales cada frame -> NO compone.
+    function SelfFX:_applyAspect()
+        if not (self:_flag("Enabled", false) and self:_flag("Aspect", false)) then return end
+        local cam = self.Services.Workspace.CurrentCamera
+        if not cam then return end
+        local sx, sy = self:_flag("AspectH", 1), self:_flag("AspectV", 1)
+        if sx == 1 and sy == 1 then return end
+        local cf = cam.CFrame; local p = cf.Position
+        local r, u, b = cf.RightVector, cf.UpVector, -cf.LookVector
+        cam.CFrame = CFrame.new(p.X, p.Y, p.Z,
+            r.X * sx, u.X * sy, b.X,
+            r.Y * sx, u.Y * sy, b.Y,
+            r.Z * sx, u.Z * sy, b.Z)
     end
 
     -- 3ra persona genérica (best-effort): habilita zoom-out (restaurado en unload).
@@ -283,11 +295,22 @@ return function(GV)
             end)
             if ok and conn then self.Conns[#self.Conns + 1] = conn end
         end
+        -- aspect ratio: correr DESPUES de la camara (Camera+1) para que el stretch pegue
+        local RS = self.Services.RunService
+        if RS.BindToRenderStep then
+            local ok = pcall(function()
+                RS:BindToRenderStep("VisualsAspect", Enum.RenderPriority.Camera.Value + 1, function()
+                    if self.Loaded then local o, e = pcall(function() self:_applyAspect() end); if not o then warn("[SelfFX aspect] " .. tostring(e)) end end
+                end)
+            end)
+            self._aspectBound = ok
+        end
         return self
     end
 
     function SelfFX:Unload()
         self.Loaded = false
+        if self._aspectBound then pcall(function() self.Services.RunService:UnbindFromRenderStep("VisualsAspect") end); self._aspectBound = false end
         for _, c in ipairs(self.Conns) do pcall(function() c:Disconnect() end) end
         for _, o in ipairs(self.Drawings) do pcall(function() o.Visible = false; o:Remove() end) end
         for _, h in pairs(self.Highlights) do pcall(function() h:Destroy() end) end

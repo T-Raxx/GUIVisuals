@@ -30,15 +30,30 @@ return function(GV)
             if row.type ~= "label" and row.type ~= "button" and row.flag then
                 opts.Callback = function(v) world:Set(row.flag, v) end
             elseif row.type == "button" then
-                opts.Callback = row.action
+                if row.presetAction then
+                    opts.Callback = function()
+                        local suite = world.__suite
+                        local w = suite and suite.modules and suite.modules.world
+                        if w then w:ApplyPreset(w:Get("World_PresetSelect")) end
+                    end
+                else
+                    opts.Callback = row.action
+                end
             end
-            -- parent para dependencia (ClaudeUI nesting)
-            local parent = row.dependsOn and byFlag[row.dependsOn] or nil
-            local h = adapter.Widget(curGroup, row.type, row.flag, opts, parent)
+            -- crear widget
+            local h
+            if row.attach then
+                -- colorpicker pegado a un toggle ya creado (patron Hitmarker)
+                local tgl = byFlag[row.attach]
+                h = adapter.AttachColor and adapter.AttachColor(tgl, row.flag, opts) or { flag = row.flag }
+            else
+                local parent = row.dependsOn and byFlag[row.dependsOn] or nil
+                h = adapter.Widget(curGroup, row.type, row.flag, opts, parent)
+                if row.dependsOn then
+                    adapter.Depend(h, row.dependsOn, row.dependsValue == nil and true or row.dependsValue)
+                end
+            end
             if row.flag then byFlag[row.flag] = h end
-            if row.dependsOn then
-                adapter.Depend(h, row.dependsOn, row.dependsValue == nil and true or row.dependsValue)
-            end
             table.insert(handles, h)
         end
         return handles

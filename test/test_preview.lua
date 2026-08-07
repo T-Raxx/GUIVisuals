@@ -8,6 +8,7 @@ local dummy = T.spawnDummy()
 p:SetModel(dummy)
 T.truthy(p.Model and p.Model.Parent == p.World, "modelo clonado en el viewport")
 -- D2: live chams + box
+p.suite.flags.ESP_Enabled = true; p.suite.flags.ESP_Box = true
 p.suite.flags.ESP_Chams = true
 p.suite.flags.ESP_ChamsFill = Color3.fromRGB(255, 0, 255)
 p:_step(0)
