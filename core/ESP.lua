@@ -48,19 +48,94 @@ return function(GV)
     end
 
     local BLACK = Color3.new(0, 0, 0)
-    local function hideBundle(b) for _, o in pairs(b) do pcall(function() o.Visible = false end) end end
+    local function hideBundle(b)
+        for k, o in pairs(b) do
+            if k == "skel" then for _, l in ipairs(o) do pcall(function() l.Visible = false end) end
+            else pcall(function() o.Visible = false end) end
+        end
+    end
 
     function ESP:_make()
         return {
-            box    = self:_draw("Square", { Filled = false, Thickness = 1 }),
-            boxOl  = self:_draw("Square", { Filled = false, Thickness = 3, Color = BLACK }),
-            name   = self:_draw("Text", { Center = true, Outline = true }),
-            dist   = self:_draw("Text", { Center = true, Outline = true }),
-            hpBg   = self:_draw("Square", { Filled = true, Color = BLACK }),
-            hpBar  = self:_draw("Square", { Filled = true }),
-            hpText = self:_draw("Text", { Center = false, Outline = true }),
-            tracer = self:_draw("Line", { Thickness = 1 }),
+            box     = self:_draw("Square", { Filled = false, Thickness = 1 }),
+            boxOl   = self:_draw("Square", { Filled = false, Thickness = 3, Color = BLACK }),
+            name    = self:_draw("Text", { Center = true, Outline = true }),
+            dist    = self:_draw("Text", { Center = true, Outline = true }),
+            hpBg    = self:_draw("Square", { Filled = true, Color = BLACK }),
+            hpBar   = self:_draw("Square", { Filled = true }),
+            hpText  = self:_draw("Text", { Center = false, Outline = true }),
+            tracer  = self:_draw("Line", { Thickness = 1 }),
+            headdot = self:_draw("Circle", { Filled = true, NumSides = 16 }),
+            look    = self:_draw("Line", { Thickness = 1 }),
+            arrow   = self:_draw("Triangle", { Filled = true }),
+            skel    = {},
         }
+    end
+
+    function ESP:_drawArrow(b, tg, cam, t, vp)
+        local center = Vector2.new(vp.X / 2, vp.Y / 2)
+        local sp = cam:WorldToViewportPoint(tg.root.Position)
+        local dir
+        if sp.Z > 0 then dir = Vector2.new(sp.X, sp.Y) - center
+        else dir = center - Vector2.new(sp.X, sp.Y) end
+        if dir.Magnitude < 1 then dir = Vector2.new(0, -1) end
+        dir = dir.Unit
+        local radius = self:_flag("OffScreenRadius", 200)
+        local size = self:_flag("OffScreenSize", 16)
+        local perp = Vector2.new(-dir.Y, dir.X)
+        local tip = center + dir * radius
+        b.arrow.Visible = true
+        b.arrow.PointA = tip
+        b.arrow.PointB = tip - dir * size + perp * (size * 0.6)
+        b.arrow.PointC = tip - dir * size - perp * (size * 0.6)
+        b.arrow.Color = self:_col(tg, "ESP_OffScreenColor", t)
+        b.arrow.ZIndex = 5
+    end
+
+    function ESP:_drawExtras(b, tg, cam, t)
+        -- skeleton
+        local showSkel = self:_flag("Skeleton", false)
+        local bones = tg.bones or {}
+        for i, bone in ipairs(bones) do
+            local l = b.skel[i]
+            if not l then l = self:_draw("Line", { Thickness = 1 }); b.skel[i] = l end
+            local pa = tg.model:FindFirstChild(bone.a)
+            local pb = tg.model:FindFirstChild(bone.b)
+            if showSkel and pa and pb then
+                local va = cam:WorldToViewportPoint(pa.Position)
+                local vb = cam:WorldToViewportPoint(pb.Position)
+                if va.Z > 0 and vb.Z > 0 then
+                    l.Visible = true
+                    l.From = Vector2.new(va.X, va.Y); l.To = Vector2.new(vb.X, vb.Y)
+                    l.Color = self:_col(tg, "ESP_SkeletonColor", t); l.ZIndex = 2
+                else l.Visible = false end
+            else l.Visible = false end
+        end
+        for i = #bones + 1, #b.skel do b.skel[i].Visible = false end
+        -- headdot
+        local showDot = self:_flag("HeadDot", false)
+        b.headdot.Visible = showDot
+        if showDot then
+            local hv = cam:WorldToViewportPoint(tg.head.Position)
+            if hv.Z > 0 then
+                b.headdot.Position = Vector2.new(hv.X, hv.Y)
+                b.headdot.Radius = self:_flag("HeadDotRadius", 3)
+                b.headdot.Color = self:_col(tg, "ESP_HeadDotColor", t)
+                b.headdot.ZIndex = 4
+            else b.headdot.Visible = false end
+        end
+        -- look direction
+        local showLook = self:_flag("LookDir", false)
+        b.look.Visible = showLook
+        if showLook then
+            local hp = tg.head.Position
+            local a = cam:WorldToViewportPoint(hp)
+            local c = cam:WorldToViewportPoint(hp + tg.head.CFrame.LookVector * self:_flag("LookLength", 2))
+            if a.Z > 0 and c.Z > 0 then
+                b.look.From = Vector2.new(a.X, a.Y); b.look.To = Vector2.new(c.X, c.Y)
+                b.look.Color = self:_col(tg, "ESP_LookDirColor", t); b.look.ZIndex = 3
+            else b.look.Visible = false end
+        end
     end
 
     function ESP:_healthColor(frac)
@@ -75,7 +150,17 @@ return function(GV)
     function ESP:_drawTarget(b, tg, cam, dist, t, font, textSize, vp)
         local topV = cam:WorldToViewportPoint(tg.head.Position + Vector3.new(0, 0.6, 0))
         local botV = cam:WorldToViewportPoint(tg.root.Position - Vector3.new(0, 3.0, 0))
-        if topV.Z <= 0 and botV.Z <= 0 then hideBundle(b); return end
+        local onScreen = topV.Z > 0 and topV.X >= 0 and topV.X <= vp.X and topV.Y >= 0 and topV.Y <= vp.Y
+        b.arrow.Visible = false
+        if not onScreen then
+            -- ocultar el bundle on-screen; flecha off-screen si aplica
+            for _, k in ipairs({ "box", "boxOl", "name", "dist", "hpBg", "hpBar", "hpText", "tracer", "headdot", "look" }) do
+                b[k].Visible = false
+            end
+            for _, l in ipairs(b.skel) do l.Visible = false end
+            if self:_flag("OffScreen", false) then self:_drawArrow(b, tg, cam, t, vp) end
+            return
+        end
         local top = Vector2.new(topV.X, topV.Y)
         local bot = Vector2.new(botV.X, botV.Y)
         local h = math.abs(bot.Y - top.Y)
@@ -147,6 +232,8 @@ return function(GV)
             b.tracer.Color = self:_col(tg, "ESP_TracerColor", t)
             b.tracer.ZIndex = 1
         end
+
+        self:_drawExtras(b, tg, cam, t)
     end
 
     function ESP:_update()
