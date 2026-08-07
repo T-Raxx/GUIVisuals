@@ -4,6 +4,7 @@ local GV = { _root = ROOT }
 local ORDER = {
     "test/harness.lua",
     "core/util.lua",
+    "core/color.lua",
     "core/World.lua",
     "ui/facade.lua",
     "ui/renderer.lua",
