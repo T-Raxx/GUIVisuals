@@ -1,0 +1,12 @@
+local GV = loadstring(readfile("GUIWorkspace/init.lua"))()
+local U, T = GV.Util, GV.T
+T.eq(U.clamp(15, 0, 10), 10, "clamp alto")
+T.eq(U.clamp(-3, 0, 10), 0, "clamp bajo")
+T.near(U.lerp(0, 10, 0.5), 5, 1e-6, "lerp medio")
+local c = Color3.fromRGB(10, 20, 30)
+local s = U.serColor(c)
+T.eq(s.__, "c3", "serColor tag")
+T.eq(U.deColor(s), c, "color roundtrip")
+local e = U.serEnum(Enum.Material.Neon)
+T.eq(U.deEnum(e), Enum.Material.Neon, "enum roundtrip")
+T.report()
