@@ -47,7 +47,47 @@ return function(GV)
         table.clear(self._orig)
     end
 
-    function SelfFX:_update() end
+    -- Camara: FOV changer + 3ra persona + Custom Aspect Ratio.
+    -- NOTA aspect: en Potassium ViewportSize es read-only duro (setscriptable/sethiddenproperty
+    -- no lo escriben) -> stretch pixel-real NO reproducible sin render-hooks. Mecanismo entregable:
+    -- FieldOfViewMode (Vertical/Diagonal/MaxAxis) + MaxAxisFieldOfView, que altera el mapeo FOV<->aspecto.
+    function SelfFX:_applyCamera()
+        local cam = self.Services.Workspace.CurrentCamera
+        if not cam then return end
+        if self:_flag("FOV", false) then
+            local fov = self:_flag("FOVValue", 70)
+            if self._provider and self._provider.setFOV then self._provider.setFOV(fov - 70)
+            else self:_set(cam, "FieldOfView", fov) end
+        end
+        if self:_flag("ThirdPerson", false) then
+            if self._provider and self._provider.setThirdPerson then self._provider.setThirdPerson(true)
+            else self:_thirdPersonGeneric(cam) end
+        end
+        local am = self:_flag("AspectMode", "Off")
+        if am ~= "Off" then
+            pcall(function() self:_set(cam, "FieldOfViewMode", Enum.FieldOfViewMode[am]) end)
+            if am == "MaxAxis" then self:_set(cam, "MaxAxisFieldOfView", self:_flag("MaxAxisFOV", 90)) end
+        end
+    end
+
+    -- 3ra persona genérica (best-effort): sin provider no forzamos; placeholder para L5.
+    function SelfFX:_thirdPersonGeneric(cam) end
+
+    function SelfFX:_off()
+        self._wasOn = false
+        for _, o in ipairs(self.Drawings) do pcall(function() o.Visible = false end) end
+        for _, h in pairs(self.Highlights) do pcall(function() h.Enabled = false end) end
+        self:_restoreAll()
+    end
+
+    function SelfFX:_update()
+        if not self:_flag("Enabled", false) then
+            if self._wasOn then self:_off() end
+            return
+        end
+        self._wasOn = true
+        self:_applyCamera()
+    end
 
     function SelfFX:Init()
         if self.Loaded then return self end
