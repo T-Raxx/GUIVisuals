@@ -56,6 +56,23 @@ return function(GV)
         local world = Instance.new("WorldModel"); world.Parent = vf
         self.VF, self.Cam, self.World = vf, cam, world
 
+        -- box overlay (borde ESP representativo, sobre el 3D)
+        local box = Instance.new("Frame"); box.BackgroundTransparency = 1; box.BorderSizePixel = 0
+        box.AnchorPoint = Vector2.new(0.5, 0.5); box.Position = UDim2.new(0.5, 0, 0.5, 6)
+        box.Size = UDim2.fromOffset(66, 150); box.ZIndex = 3; box.Parent = vf
+        local boxStroke = Instance.new("UIStroke", box); boxStroke.Thickness = 1.5; boxStroke.Color = Color3.fromRGB(0, 255, 120)
+        self._box, self._boxStroke = box, boxStroke
+
+        -- matrix rain (columnas verdes low-alpha delante del modelo)
+        self._matrix = {}
+        for i = 1, 10 do
+            local l = Instance.new("TextLabel"); l.BackgroundTransparency = 1; l.Font = Enum.Font.Code
+            l.TextSize = 12; l.TextColor3 = Color3.fromRGB(0, 255, 80); l.TextTransparency = 0.55
+            l.Size = UDim2.fromOffset(12, 220); l.TextYAlignment = Enum.TextYAlignment.Top; l.Text = ""
+            l.Position = UDim2.fromScale((i - 0.5) / 10, math.random()); l.ZIndex = 2; l.Parent = vf
+            table.insert(self._matrix, l)
+        end
+
         function self:SetModel(char)
             for _, c in ipairs(self.World:GetChildren()) do c:Destroy() end
             self.Model = nil
@@ -85,6 +102,31 @@ return function(GV)
             if not show or not self.Model then return end
             self._angle = (self._angle or 0) + math.rad(40) * dt
             self:_apply(self._angle)
+            local t = tick()
+            -- world lighting -> viewport
+            self.VF.Ambient = GV.Color.fade(flags, "World_Ambient", t)
+            self.VF.LightColor = flags.World_Fullbright and Color3.new(1, 1, 1) or Color3.fromRGB(255, 255, 255)
+            -- chams (ESP o self-chams) sobre el clone
+            local chamsOn = flags.ESP_Chams or flags.Local_SelfChams
+            if chamsOn then
+                if not self._chams then self._chams = Instance.new("Highlight"); self._chams.Parent = self.VF; table.insert(self._made, self._chams) end
+                self._chams.Adornee = self.Model; self._chams.Enabled = true
+                local isSelf = flags.Local_SelfChams and true or false
+                self._chams.FillColor = GV.Color.fade(flags, isSelf and "Local_SelfChamsFill" or "ESP_ChamsFill", t)
+                self._chams.OutlineColor = GV.Color.fade(flags, isSelf and "Local_SelfChamsOutline" or "ESP_ChamsOutline", t)
+            elseif self._chams then self._chams.Enabled = false end
+            -- box overlay color (representativo)
+            self._box.Visible = flags.ESP_Box ~= false
+            self._boxStroke.Color = GV.Color.fade(flags, "ESP_BoxColor", t)
+            -- matrix rain
+            for i, l in ipairs(self._matrix) do
+                local y = (l.Position.Y.Scale + dt * (0.15 + (i % 3) * 0.08)) % 1.3 - 0.3
+                l.Position = UDim2.fromScale(l.Position.X.Scale, y)
+                if math.floor(t * 6 + i) % 3 == 0 then
+                    local s = {}; for k = 1, 9 do s[k] = string.char(48 + (i * 7 + k * 3) % 10) end
+                    l.Text = table.concat(s, "\n")
+                end
+            end
         end
 
         table.insert(self._conns, RunService.RenderStepped:Connect(function(dt)
