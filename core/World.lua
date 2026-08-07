@@ -16,6 +16,7 @@ return function(GV)
             _orig = {}, _made = {}, _fxCache = {}, _applies = {},
             Loaded = false, _wasOn = false,
         }, World)
+        self:_installApplies()
         return self
     end
 
@@ -115,6 +116,58 @@ return function(GV)
         for _, inst in ipairs(self._made) do pcall(function() inst:Destroy() end) end
         table.clear(self._made)
         self._fxCache = {}
+    end
+
+    ------------------------------------------------------------------ APPLIES
+    local WHITE = Color3.fromRGB(255, 255, 255)
+
+    -- A. Lighting core
+    function World:_applyLighting()
+        local L = self.Services.Lighting
+        if self:_flag("World_Fullbright", false) then
+            self:_set(L, "Ambient", WHITE); self:_set(L, "OutdoorAmbient", WHITE)
+            self:_set(L, "Brightness", 1); self:_set(L, "GlobalShadows", false)
+        else
+            local amb = self:_flag("World_Ambient", Color3.fromRGB(120, 120, 125))
+            self:_set(L, "Ambient", amb)
+            self:_set(L, "OutdoorAmbient", self:_flag("World_OutdoorAmbient", amb))
+            self:_set(L, "Brightness", self:_flag("World_Brightness", 3))
+            self:_set(L, "GlobalShadows", not self:_flag("World_NoShadows", false))
+        end
+        self:_set(L, "ExposureCompensation", self:_flag("World_Exposure", 0))
+        self:_set(L, "ColorShift_Top", self:_flag("World_ColorShiftTop", Color3.new()))
+        self:_set(L, "ColorShift_Bottom", self:_flag("World_ColorShiftBottom", Color3.new()))
+        self:_set(L, "EnvironmentDiffuseScale", self:_flag("World_EnvDiffuse", 1))
+        self:_set(L, "EnvironmentSpecularScale", self:_flag("World_EnvSpecular", 1))
+        self:_set(L, "GeographicLatitude", self:_flag("World_GeoLatitude", 41.733))
+        local tech = self:_flag("World_Technology", "")
+        if tech ~= "" then pcall(function() L.Technology = Enum.Technology[tech] end) end
+    end
+
+    -- B. Tiempo / sol
+    function World:_applyTime()
+        local L = self.Services.Lighting
+        if self:_flag("World_DayNightCycle", false) then
+            local spd = self:_flag("World_CycleSpeed", 1)
+            local t = (self._cycleT or self:_flag("World_ClockTime", 12)) + (1 / 60) * spd
+            if t >= 24 then t = t - 24 end
+            self._cycleT = t
+            self:_set(L, "ClockTime", t)
+        elseif self:_flag("World_FreezeTime", false) then
+            if not self._freeze then self._freeze = self:_flag("World_ClockTime", 12) end
+            self:_set(L, "ClockTime", self._freeze)
+        elseif self:_flag("World_UseTimeOfDay", false) then
+            local c = self:_flag("World_ClockTime", 12); local h = math.floor(c); local m = math.floor((c - h) * 60)
+            self:_set(L, "TimeOfDay", string.format("%02d:%02d:00", h, m))
+        else
+            self._freeze = nil
+            self:_set(L, "ClockTime", self:_flag("World_ClockTime", 12))
+        end
+    end
+
+    function World:_installApplies()
+        self:_register(self._applyLighting)
+        self:_register(self._applyTime)
     end
 
     GV.World = World
