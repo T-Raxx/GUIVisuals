@@ -142,9 +142,60 @@ return function(GV)
         return Color3.fromRGB(math.floor(220 * (1 - frac)) + 20, math.floor(200 * frac) + 20, 40)
     end
 
-    -- color de un target para un flag base; E5 lo reemplaza para color modes
+    -- color de un target para un flag base, segun ColorMode
+    local TEAM_ENEMY, TEAM_ALLY = Color3.fromRGB(235, 64, 52), Color3.fromRGB(64, 200, 96)
+    local GREY = Color3.fromRGB(90, 90, 90)
     function ESP:_col(tg, base, t)
+        local mode = self:_flag("ColorMode", "Fijo")
+        if mode == "Team" then return tg.isEnemy and TEAM_ENEMY or TEAM_ALLY end
+        if mode == "Visibilidad" then
+            return tg._visible and GV.Color.fade(self.Flags, "ESP_VisibleColor", t)
+                or GV.Color.fade(self.Flags, "ESP_HiddenColor", t)
+        end
+        if mode == "Distancia" then
+            local frac = math.clamp((tg._dist or 0) / self:_flag("MaxDistance", 1200), 0, 1)
+            return GV.Color.fade(self.Flags, base, t):Lerp(GREY, frac)
+        end
         return GV.Color.fade(self.Flags, base, t)
+    end
+
+    -- raycast LOS camara->root (ignora camara + char local)
+    function ESP:_visible(root)
+        local cam = self.Services.Workspace.CurrentCamera
+        if not cam or not root then return true end
+        local origin = cam.CFrame.Position
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        local ignore = { cam }
+        local lp = self.Services.Players and self.Services.Players.LocalPlayer
+        if lp and lp.Character then table.insert(ignore, lp.Character) end
+        params.FilterDescendantsInstances = ignore
+        local res = self.Services.Workspace:Raycast(origin, root.Position - origin, params)
+        if not res then return true end
+        return res.Instance and root.Parent and res.Instance:IsDescendantOf(root.Parent) or false
+    end
+
+    -- chams via Highlight (detectable). Uno por modelo en self.Highlights.
+    function ESP:_chams(tg, t)
+        if not self:_flag("Chams", false) then
+            local h = self.Highlights[tg.model]; if h then h.Enabled = false end
+            return
+        end
+        local h = self.Highlights[tg.model]
+        if not h or not h.Parent then
+            h = Instance.new("Highlight")
+            h.Name = "LC"
+            h.Adornee = tg.model
+            h.Parent = self.Services.Workspace.CurrentCamera
+            self.Highlights[tg.model] = h
+        end
+        h.Enabled = true
+        h.FillColor = GV.Color.fade(self.Flags, "ESP_ChamsFill", t)
+        h.OutlineColor = GV.Color.fade(self.Flags, "ESP_ChamsOutline", t)
+        h.FillTransparency = self:_flag("ChamsFillTransparency", 0.5)
+        h.OutlineTransparency = self:_flag("ChamsOutlineTransparency", 0)
+        h.DepthMode = (self:_flag("ChamsDepthMode", "AlwaysOnTop") == "Occluded")
+            and Enum.HighlightDepthMode.Occluded or Enum.HighlightDepthMode.AlwaysOnTop
     end
 
     function ESP:_drawTarget(b, tg, cam, dist, t, font, textSize, vp)
@@ -255,23 +306,31 @@ return function(GV)
                 if dist <= maxDist then
                     count += 1
                     live[tg.model] = true
+                    tg._dist = dist
+                    if self:_flag("VisibleCheck", false) or self:_flag("ColorMode", "Fijo") == "Visibilidad" then
+                        tg._visible = self:_visible(tg.root)
+                    else
+                        tg._visible = true
+                    end
                     local b = self.Objects[tg.model] or self:_make()
                     self.Objects[tg.model] = b
                     self:_drawTarget(b, tg, cam, dist, t, font, textSize, vp)
+                    self:_chams(tg, t)
                 end
             end
         end
         for model, b in pairs(self.Objects) do
             if not live[model] then
                 hideBundle(b)
+                local h = self.Highlights[model]; if h then h.Enabled = false end
                 if not (model and model.Parent) then self.Objects[model] = nil end
             end
         end
     end
 
-    -- filtros base (E5 extiende)
     function ESP:_passFilters(tg)
         if self:_flag("DeadCheck", false) and (tg.health or 0) <= 0 then return false end
+        if self:_flag("PlayersOnly", false) and tg.isPlayer == false then return false end
         return true
     end
 
@@ -286,7 +345,6 @@ return function(GV)
     end
 
     function ESP:Unload()
-        if not self.Loaded then return end
         self.Loaded = false
         for _, c in ipairs(self.Conns) do pcall(function() c:Disconnect() end) end
         for _, o in ipairs(self.Drawings) do pcall(function() o.Visible = false; o:Remove() end) end
