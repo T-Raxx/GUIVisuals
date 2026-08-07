@@ -252,11 +252,42 @@ return function(GV)
         end
     end
 
+    -- F. Cielo / celestial  +  G. Nubes (Terrain.Clouds)
+    function World:_applySky()
+        local L = self.Services.Lighting
+        local sky = L:FindFirstChildOfClass("Sky")
+        if sky then
+            local off = self:_flag("World_NoSky", false)
+            self:_set(sky, "CelestialBodiesShown", not off)
+            self:_set(sky, "StarCount", off and 0 or self:_flag("World_StarCount", 3000))
+            if self:_flag("World_CustomSkybox", false) then
+                local faces = { Up = "SkyboxUp", Dn = "SkyboxDn", Lf = "SkyboxLf", Rt = "SkyboxRt", Bk = "SkyboxBk", Ft = "SkyboxFt" }
+                for face, prop in pairs(faces) do
+                    local v = self:_flag("World_Skybox_" .. face, "")
+                    if v ~= "" then self:_set(sky, prop, v) end
+                end
+                local sun = self:_flag("World_SunTextureId", ""); if sun ~= "" then self:_set(sky, "SunTextureId", sun) end
+                local moon = self:_flag("World_MoonTextureId", ""); if moon ~= "" then self:_set(sky, "MoonTextureId", moon) end
+                self:_set(sky, "SunAngularSize", self:_flag("World_SunAngularSize", 21))
+                self:_set(sky, "MoonAngularSize", self:_flag("World_MoonAngularSize", 11))
+            end
+        end
+        local Terrain = self.Services.Terrain
+        if not Terrain or not Terrain.FindFirstChildOfClass then return end
+        if not self:_flag("World_Clouds", false) then return end
+        local clouds = Terrain:FindFirstChildOfClass("Clouds") or self:_fx("Clouds", Terrain)
+        self:_set(clouds, "Enabled", not self:_flag("World_NoClouds", false))
+        self:_set(clouds, "Cover", self:_flag("World_CloudCover", 0.5))
+        self:_set(clouds, "Density", self:_flag("World_CloudDensity", 0.7))
+        self:_set(clouds, "Color", self:_flag("World_CloudColor", WHITE))
+    end
+
     function World:_installApplies()
         self:_register(self._applyLighting)
         self:_register(self._applyTime)
         self:_register(self._applyFog)
         self:_register(self._applyPost)
+        self:_register(self._applySky)
     end
 
     GV.World = World
