@@ -116,6 +116,78 @@ return function(GV)
         end
     end
 
+    -- HUD: watermark + hitmarker + keybind-list
+    function SelfFX:_makeHUD()
+        if self._hud then return self._hud end
+        self._hud = {
+            wm = self:_draw("Text", { Outline = true, Size = 14, Font = 2 }),
+            kb = {},
+            hit = { self:_draw("Line", { Thickness = 2 }), self:_draw("Line", { Thickness = 2 }),
+                self:_draw("Line", { Thickness = 2 }), self:_draw("Line", { Thickness = 2 }) },
+        }
+        return self._hud
+    end
+
+    function SelfFX:_applyWatermark(t)
+        local hud = self:_makeHUD()
+        hud.wm.Visible = self:_flag("Watermark", false)
+        if not hud.wm.Visible then return end
+        local parts = {}
+        if self:_flag("WM_Title", true) then table.insert(parts, "Visuals") end
+        if self:_flag("WM_FPS", true) then table.insert(parts, (self._fps or 0) .. " fps") end
+        if self:_flag("WM_Ping", true) then
+            local ok, p = pcall(function() return math.floor(self.Services.Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+            if ok then table.insert(parts, p .. " ms") end
+        end
+        if self:_flag("WM_Name", true) then
+            local ok, n = pcall(function() return self.Services.Players.LocalPlayer.Name end)
+            if ok and n then table.insert(parts, n) end
+        end
+        if self:_flag("WM_Time", false) then
+            local ok, ts = pcall(function() return os.date("%H:%M:%S") end); if ok then table.insert(parts, ts) end
+        end
+        if #parts == 0 then parts[1] = "Visuals" end
+        hud.wm.Text = table.concat(parts, " | ")
+        hud.wm.Color = GV.Color.fade(self.Flags, "Local_WatermarkColor", t)
+        hud.wm.Position = Vector2.new(self:_flag("WatermarkX", 10), self:_flag("WatermarkY", 8))
+        hud.wm.ZIndex = 10
+    end
+
+    function SelfFX:_applyHitmarker(t)
+        local hud = self:_makeHUD()
+        local active = self:_flag("Hitmarker", false) and self._hitUntil and tick() < self._hitUntil
+        for _, l in ipairs(hud.hit) do l.Visible = active end
+        if not active then return end
+        local cam = self.Services.Workspace.CurrentCamera; if not cam then return end
+        local vp = cam.ViewportSize; local cx, cy = vp.X / 2, vp.Y / 2
+        local gap = self:_flag("HitmarkerGap", 4); local size = self:_flag("HitmarkerSize", 8)
+        local col = GV.Color.fade(self.Flags, "Local_HitmarkerColor", t)
+        local segs = {
+            { cx - gap - size, cy - gap - size, cx - gap, cy - gap },
+            { cx + gap, cy - gap, cx + gap + size, cy - gap - size },
+            { cx - gap - size, cy + gap + size, cx - gap, cy + gap },
+            { cx + gap, cy + gap, cx + gap + size, cy + gap + size },
+        }
+        for i, l in ipairs(hud.hit) do
+            local s = segs[i]; l.From = Vector2.new(s[1], s[2]); l.To = Vector2.new(s[3], s[4]); l.Color = col; l.ZIndex = 11
+        end
+    end
+
+    function SelfFX:_applyKeybindList(t)
+        local hud = self:_makeHUD()
+        for _, l in ipairs(hud.kb) do l.Visible = false end
+        if not self:_flag("KeybindList", false) then return end
+        local list = self._provider and self._provider.keybinds and self._provider.keybinds() or {}
+        local col = GV.Color.fade(self.Flags, "Local_KeybindColor", t)
+        local x, y = self:_flag("KeybindX", 10), self:_flag("KeybindY", 120)
+        for i, kb in ipairs(list) do
+            local o = hud.kb[i]
+            if not o then o = self:_draw("Text", { Outline = true, Size = 13, Font = 2 }); hud.kb[i] = o end
+            o.Visible = true; o.Text = (kb.name or "?") .. ": " .. tostring(kb.key or "?")
+            o.Color = col; o.Position = Vector2.new(x, y + (i - 1) * 15); o.ZIndex = 10
+        end
+    end
+
     function SelfFX:_off()
         self._wasOn = false
         for _, o in ipairs(self.Drawings) do pcall(function() o.Visible = false end) end
@@ -129,9 +201,14 @@ return function(GV)
             return
         end
         self._wasOn = true
-        local t = tick()
+        local now = tick()
+        if self._lastT then self._fps = math.floor(1 / math.max(1e-3, now - self._lastT) + 0.5) end
+        self._lastT = now
         self:_applyCamera()
-        self:_applyCrosshair(t)
+        self:_applyCrosshair(now)
+        self:_applyWatermark(now)
+        self:_applyHitmarker(now)
+        self:_applyKeybindList(now)
     end
 
     function SelfFX:Init()
@@ -141,6 +218,14 @@ return function(GV)
             local ok, err = pcall(function() self:_update() end)
             if not ok then warn("[SelfFX] " .. tostring(err)) end
         end)
+        if self._provider and self._provider.hitSignal then
+            local ok, conn = pcall(function()
+                return self._provider.hitSignal:Connect(function()
+                    self._hitUntil = tick() + self:_flag("HitmarkerDuration", 0.3)
+                end)
+            end)
+            if ok and conn then self.Conns[#self.Conns + 1] = conn end
+        end
         return self
     end
 
