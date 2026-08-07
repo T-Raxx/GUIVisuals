@@ -21,5 +21,27 @@ return function(GV)
     function T.report()
         print(string.format("[TEST] SUMMARY %d/%d", T._p, T._n)); return T._p, T._n
     end
+    function T.mockServices()
+        local function fakeInst(props)
+            local o = { _props = props or {}, _children = {} }
+            setmetatable(o, {
+                __index = function(t, k) return rawget(t, "_props")[k] end,
+                __newindex = function(t, k, v) rawget(t, "_props")[k] = v end,
+            })
+            rawget(o, "_props").FindFirstChildOfClass = function() return nil end
+            rawget(o, "_props").GetChildren = function() return {} end
+            rawget(o, "_props").GetDescendants = function() return {} end
+            return o
+        end
+        local Lighting = fakeInst({ Ambient = Color3.new(), OutdoorAmbient = Color3.new(), Brightness = 1,
+            GlobalShadows = true, ClockTime = 12, ExposureCompensation = 0, FogStart = 0, FogEnd = 1000,
+            FogColor = Color3.new() })
+        return {
+            Lighting = Lighting,
+            Terrain = fakeInst({}),
+            RunService = { RenderStepped = { Connect = function() return { Disconnect = function() end } end } },
+            Workspace = { CurrentCamera = fakeInst({ CFrame = CFrame.new() }) },
+        }
+    end
     GV.T = T
 end
