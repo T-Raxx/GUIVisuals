@@ -22,7 +22,8 @@ return function(GV)
 
         local root = Instance.new("Frame")
         root.Size = UDim2.fromOffset(260, 320)
-        root.Position = UDim2.new(0.5, 440, 0.5, -160)
+        root.AnchorPoint = Vector2.new(1, 0.5)
+        root.Position = UDim2.new(1, -12, 0.5, 0) -- dockeado al borde derecho (draggable), al lado de la UI
         root.BackgroundColor3 = Color3.fromRGB(20, 20, 24); root.BorderSizePixel = 0; root.Parent = gui
         Instance.new("UICorner", root).CornerRadius = UDim.new(0, 8)
         local st = Instance.new("UIStroke", root); st.Color = Color3.fromRGB(8, 8, 10); st.Thickness = 1
