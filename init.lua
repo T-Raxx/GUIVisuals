@@ -10,6 +10,7 @@ local ORDER = {
     "ui/renderer.lua",
     "ui/adapter_claudeui.lua",
     "ui/adapter_primordial.lua",
+    "schema/_helpers.lua",
     "schema/world.lua",
     "games/rivals.lua",
     "games/_template.lua",
