@@ -43,5 +43,13 @@ return function(GV)
             Workspace = { CurrentCamera = fakeInst({ CFrame = CFrame.new() }) },
         }
     end
+    function T.spawnDummy(cf)
+        local m = Instance.new("Model"); m.Name = "ESPDummy"
+        local hrp = Instance.new("Part"); hrp.Name = "HumanoidRootPart"; hrp.Size = Vector3.new(2, 2, 1); hrp.Anchored = true; hrp.CanCollide = false; hrp.CFrame = cf or CFrame.new(0, 5, -15); hrp.Parent = m
+        local head = Instance.new("Part"); head.Name = "Head"; head.Size = Vector3.new(1, 1, 1); head.Anchored = true; head.CanCollide = false; head.CFrame = hrp.CFrame * CFrame.new(0, 2.5, 0); head.Parent = m
+        local hum = Instance.new("Humanoid"); hum.Parent = m
+        m.Parent = workspace
+        return m
+    end
     GV.T = T
 end
