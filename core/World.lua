@@ -389,6 +389,46 @@ return function(GV)
         end
     end
 
+    -- J. Visibilidad (agresivo). Gateado tras World_Advanced. Usa self._mapFilter del perfil.
+    function World:_applyVisibility()
+        if not self:_flag("World_Advanced", false) then return end
+        local killP  = self:_flag("World_KillParticles", false)
+        local smooth = self:_flag("World_ForceSmoothPlastic", false)
+        local tr     = self:_flag("World_MapTransparent", false)
+        local noTex  = self:_flag("World_NoTextures", false)
+        if not (killP or smooth or tr or noTex) then return end
+        local amount = self:_flag("World_MapTransparentAmount", 0.6)
+        local filter = self._mapFilter
+        local ok, list = pcall(function() return self.Services.Workspace:GetDescendants() end)
+        if not ok or not list then return end
+        for _, d in ipairs(list) do
+            if not (filter and filter(d)) then
+                if killP and (d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail")) then
+                    self:_set(d, "Enabled", false)
+                elseif d:IsA("BasePart") then
+                    if smooth then self:_set(d, "Material", Enum.Material.SmoothPlastic) end
+                    if tr and d.Transparency < amount then self:_set(d, "Transparency", amount) end
+                elseif noTex and (d:IsA("Decal") or d:IsA("Texture")) then
+                    self:_set(d, "Transparency", 1)
+                end
+            end
+        end
+    end
+
+    -- K. Presets: batch de flags
+    local PRESETS = {
+        Competitivo         = { World_Enabled = true, World_Fullbright = true, World_NoFog = true, World_NoShadows = true, World_Atmosphere = false, World_Bloom = false },
+        ["Cinematográfico"] = { World_Enabled = true, World_Fullbright = false, World_Bloom = true, World_BloomIntensity = 1.2, World_DoF = true, World_Exposure = 0.2, World_Tint = true, World_TintContrast = 0.1 },
+        ["Día"]             = { World_Enabled = true, World_ClockTime = 13, World_Fullbright = false, World_NoFog = true },
+        Noche               = { World_Enabled = true, World_ClockTime = 0, World_Brightness = 1, World_Fullbright = false },
+        Atardecer           = { World_Enabled = true, World_ClockTime = 17.5, World_Atmosphere = true, World_AtmDensity = 0.4, World_AtmColor = Color3.fromRGB(255, 170, 120) },
+        Niebla              = { World_Enabled = true, World_NoFog = false, World_FogStart = 0, World_FogEnd = 180, World_FogColor = Color3.fromRGB(180, 185, 195) },
+    }
+    function World:ApplyPreset(name)
+        local p = PRESETS[name]; if not p then return end
+        for k, v in pairs(p) do self:Set(k, v) end
+    end
+
     function World:_installApplies()
         self:_register(self._applyLighting)
         self:_register(self._applyTime)
@@ -397,6 +437,7 @@ return function(GV)
         self:_register(self._applySky)
         self:_register(self._applyWater)
         self:_register(self._applyWeather)
+        self:_register(self._applyVisibility)
     end
 
     GV.World = World
