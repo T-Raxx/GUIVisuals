@@ -99,7 +99,7 @@ Mezcla de writes de cámara + overlays Drawing. **Cero hooks.** Todo color vía 
 Prefijo `Local_`. Maestro `Local_Enabled`.
 
 **Cámara** — `Local_FOV` (toggle) + `Local_FOVValue` (slider 40–120) [**FOV changer**]. `Local_ThirdPerson` (toggle) + distancia. `Local_ViewmodelOffset` (X/Y/Z, si el perfil lo soporta).
-**Custom Aspect Ratio** — `Local_AspectMode` (dropdown: Off/Vertical/Diagonal/MaxAxis → `Camera.FieldOfViewMode`) + `Local_AspectFOV` (slider, se combina con MaxAxis). ⚠️ **Nota técnica:** Roblox NO permite stretch real del framebuffer sin render-hooks (prohibidos por el diseño no-hooks). Esto aproxima el efecto de aspect cambiando cómo el FOV mapea al eje. El stretch pixel-perfect NO es alcanzable client-side sin hooks. Documentado como limitación.
+**Custom Aspect Ratio** — `Local_AspectMode` (dropdown), `Local_AspectRatio` (slider, ej 1.0–2.0), + fallback `Local_FOVMode` (Vertical/Diagonal/MaxAxis → `Camera.FieldOfViewMode`). ✅ **Alcanzable sin hooks** — confirmado empíricamente por el user en cheats closed-source corriendo sobre **Solara** (executor que NO soporta hooks). Mi suposición previa de que requería render-hooks era ERRÓNEA. **Research item en fase C** (tarea de investigación live vía MCP): reproducir el stretch real por manipulación de propiedades no-hook. Candidatos a probar en orden: (1) `sethiddenproperty`/`setscriptable` sobre `workspace.CurrentCamera.ViewportSize` (normalmente read-only), (2) propiedades de FOV por-eje / `MaxAxisFieldOfView` + `FieldOfViewMode`, (3) re-render vía ViewportFrame stretched. Se elige el que reproduzca el stretch en vivo; `FieldOfViewMode` queda como fallback si ninguno reproduce el efecto pixel-stretch.
 **Crosshair** (Drawing) — `Local_Crosshair` (toggle) + `Local_CrosshairStyle` (Cross/Dot/Circle/T) + gap/thickness/size + `Local_CrosshairColor` (CF) + outline.
 **Hitmarker** (Drawing, dep `hitSignal`) — `Local_Hitmarker` (toggle) + style (X/Cross/Circle) + size/duration + `Local_HitmarkerColor` (CF) + sonido opt.
 **HUD / Watermark** (Drawing) — `Local_Watermark` (toggle) + contenido (FPS/ping/nombre/hora) + `Local_WatermarkColor` (CF) + posición custom + `Local_KeybindList` (toggle, lista de keybinds activos) + color CF + posición.
@@ -147,6 +147,5 @@ Cliente vivo (Baseplate Potassium). Servicios/provider mockeados para lógica pu
 ## Fuera de alcance
 
 - Aimbot/triggerbot/rage (combate) — no es visuals.
-- True aspect-ratio pixel-stretch (requiere render-hooks, prohibidos).
 - Config UI del host (el suite expone `GetFlags/LoadFlags` por módulo).
 - Radar/minimap — posible fase futura, no ahora.
