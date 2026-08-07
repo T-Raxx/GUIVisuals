@@ -4,7 +4,7 @@
 return function(GV, target)
     local ORDER = {
         "core/util.lua", "core/color.lua", "core/World.lua", "core/ESP.lua", "core/esp_default.lua", "core/selffx.lua",
-        "ui/facade.lua", "ui/renderer.lua",
+        "ui/facade.lua", "ui/renderer.lua", "ui/preview.lua",
         target == "primordial" and "ui/adapter_primordial.lua" or "ui/adapter_claudeui.lua",
         "schema/_helpers.lua", "schema/world.lua", "schema/esp.lua", "schema/local.lua",
         "games/rivals.lua", "games/_template.lua", "entry/attach.lua",

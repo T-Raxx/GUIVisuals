@@ -23,6 +23,7 @@ return function(GV)
         function bag:Get(k) return self.Flags[k] end
         local suite = { modules = {}, flags = flags }
         function suite:Unload()
+            if self._preview then pcall(function() self._preview:Unload() end); self._preview = nil end
             for _, m in pairs(self.modules) do pcall(function() m:Unload() end) end
         end
         bag.__suite = suite
@@ -46,6 +47,11 @@ return function(GV)
         end
         GV.Renderer.build(adapter, Window, schema, bag)
         for _, inst in pairs(suite.modules) do inst:Init() end
+        -- Preview viewport: solo si el adapter lo soporta (Primordial). ClaudeUI = 0 instancias.
+        if adapter.supportsPreview and opts.preview ~= false and GV.Preview then
+            local ok, pv = pcall(function() return GV.Preview.mount(suite) end)
+            if ok then suite._preview = pv end
+        end
         return suite
     end
 end

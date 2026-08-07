@@ -18,4 +18,10 @@ T.truthy(#p._matrix == 10, "matrix rain 10 columnas")
 p:Unload()
 T.truthy(p.VF.Parent == nil, "Unload destruye el viewport")
 dummy:Destroy()
+-- D3: capacidad por adapter + Suite_Preview
+T.eq(GV.Adapters.primordial.supportsPreview, true, "primordial soporta preview")
+T.truthy(GV.Adapters.claudeui.supportsPreview ~= true, "claudeui NO soporta preview (undetected)")
+local hasPv = false
+for _, r in ipairs(GV.SchemaHelpers.suiteRows()) do if r.flag == "Suite_Preview" then hasPv = true end end
+T.truthy(hasPv, "Suite_Preview en suiteRows")
 T.report()

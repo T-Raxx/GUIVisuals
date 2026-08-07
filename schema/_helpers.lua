@@ -18,6 +18,8 @@ return function(GV)
         return {
             { tab = "Mundo", group = "Suite", side = "Left", flag = "Suite_FadeSpeed", type = "slider",
                 text = "Velocidad fade", min = 0.1, max = 5, default = 1, decimals = 2 },
+            { tab = "Mundo", group = "Suite", side = "Left", flag = "Suite_Preview", type = "toggle",
+                text = "Preview (solo Primordial)", default = false },
         }
     end
     GV.SchemaHelpers = H

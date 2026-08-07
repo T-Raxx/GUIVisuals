@@ -23,5 +23,6 @@ return function(GV)
         if widget and type(widget.DependsOn) == "function" then widget:DependsOn(flag, val) end
     end
 
+    A.supportsPreview = true -- Primordial es instance-based -> puede montar el preview viewport
     GV.Adapters.primordial = A
 end
