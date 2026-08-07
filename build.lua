@@ -3,9 +3,9 @@
 -- Uso:  loadstring(readfile("GUIWorkspace/build.lua"))()(GV, "claudeui" | "primordial")
 return function(GV, target)
     local ORDER = {
-        "core/util.lua", "core/World.lua", "ui/facade.lua", "ui/renderer.lua",
+        "core/util.lua", "core/color.lua", "core/World.lua", "ui/facade.lua", "ui/renderer.lua",
         target == "primordial" and "ui/adapter_primordial.lua" or "ui/adapter_claudeui.lua",
-        "schema/world.lua", "games/rivals.lua", "games/_template.lua", "entry/attach.lua",
+        "schema/_helpers.lua", "schema/world.lua", "games/rivals.lua", "games/_template.lua", "entry/attach.lua",
     }
     local parts = { "-- World Visuals (" .. target .. ") — build autogenerado\nlocal GV = {}\n" }
     for _, p in ipairs(ORDER) do
@@ -16,7 +16,7 @@ return function(GV, target)
     table.insert(parts, "GV._defaultAdapter = '" .. target .. "'\nreturn { Attach = GV.Attach, _GV = GV }\n")
     local out = table.concat(parts)
     if writefile then
-        local name = target == "primordial" and "World.Primordial.lua" or "World.ClaudeUI.lua"
+        local name = target == "primordial" and "Visuals.Primordial.lua" or "Visuals.ClaudeUI.lua"
         pcall(writefile, "GUIWorkspace/dist/" .. name, out)
     end
     return out
