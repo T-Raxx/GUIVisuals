@@ -234,7 +234,7 @@ return function(GV)
 
     function SelfFX:_applyHitmarker(t)
         local hud = self:_makeHUD()
-        local active = self:_flag("Hitmarker", false) and self._hitUntil and tick() < self._hitUntil
+        local active = (self:_flag("Hitmarker", false) and self._hitUntil and tick() < self._hitUntil) and true or false
         for _, l in ipairs(hud.hit) do l.Visible = active end
         if not active then return end
         local cam = self.Services.Workspace.CurrentCamera; if not cam then return end

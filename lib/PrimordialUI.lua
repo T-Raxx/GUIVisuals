@@ -143,6 +143,32 @@ return function(P)
         return sh
     end
 
+    -- Profundidad interna sutil para controles (Surface2). Oscurece hacia abajo
+    -- (gradiente multiplicativo) + linea de highlight 1px arriba (borde superior con luz).
+    -- opts.Bottom = cuanto oscurece abajo (0..1, default 0.14). opts.Highlight = agregar rim light.
+    function Util.Depth(inst, opts)
+        opts = opts or {}
+        local b = 1 - (opts.Bottom or 0.14)
+        local g = Instance.new("UIGradient")
+        g.Rotation = 90
+        g.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+            ColorSequenceKeypoint.new(1, Color3.new(b, b, b)),
+        })
+        g.Parent = inst
+        if opts.Highlight then
+            local hl = Instance.new("Frame")
+            hl.Name = "Rim"; hl.BorderSizePixel = 0
+            hl.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            hl.BackgroundTransparency = opts.HighlightT or 0.9
+            hl.Position = UDim2.fromOffset(2, 1)
+            hl.Size = UDim2.new(1, -4, 0, 1)
+            hl.ZIndex = (inst.ZIndex or 1) + 1
+            hl.Parent = inst
+        end
+        return g
+    end
+
     P.Util = Util
 end
 
@@ -1327,6 +1353,9 @@ return function(P)
         }, {
             U.Create("UICorner", { CornerRadius = UDim.new(0, 3) }),
             U.Create("UIStroke", { Color = T.Border, Thickness = 1 }),
+            U.Create("UIGradient", { Name = "Depth", Rotation = 90, Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+                ColorSequenceKeypoint.new(1, Color3.new(0.82, 0.82, 0.82)) }) }),
             U.Create("ImageLabel", { Name = "Check", BackgroundTransparency = 1,
                 AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
                 Size = UDim2.fromScale(0.82, 0.82), Image = "rbxassetid://6031094667",
@@ -1441,6 +1470,8 @@ return function(P)
                 ColorSequenceKeypoint.new(0, Color3.fromRGB(235,235,238)),
                 ColorSequenceKeypoint.new(0.5, T.Knob),
                 ColorSequenceKeypoint.new(1, Color3.fromRGB(150,150,156)) }) }) })
+        U.Depth(self.Track, { Bottom = 0.18 })
+        U.Depth(self.ValBox, { Bottom = 0.12 })
         base.Control.Visible = false
 
         local function setFromX(px)
@@ -1538,6 +1569,7 @@ return function(P)
                 Font = T.Font, TextSize = T.TextSize, Text = "...", TextColor3 = T.Text,
                 TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }),
         })
+        U.Depth(self.DControl, { Highlight = true })
         if self.Multi then
             hamburger(self.DControl)
             self.Value = {}
@@ -1785,6 +1817,7 @@ return function(P)
         }, { U.Create("UICorner", { CornerRadius = UDim.new(0, T.Radius) }),
             U.Create("UIStroke", { Color = T.Outline, Thickness = 1 }),
             U.Create("UIPadding", { PaddingLeft = UDim.new(0, 8) }) })
+        U.Depth(self.Input, { Highlight = true })
         self.Input:GetPropertyChangedSignal("Text"):Connect(function()
             local t = self.Input.Text
             if self.Numeric then t = t:gsub("[^%d%.%-]", "") end

@@ -4,16 +4,26 @@ return function(GV)
     local ADD = { toggle = "AddToggle", slider = "AddSlider", dropdown = "AddDropdown",
         colorpicker = "AddColorPicker", label = "AddLabel", textbox = "AddTextBox", button = "AddButton" }
 
+    -- side -> columna. Left=1, Mid/Center=2, Right=ultima columna del tab (numCols).
+    -- side numerico => columna explicita. Permite tabs de 3 columnas para grupos chicos.
+    local function sideToCol(side, numCols)
+        if type(side) == "number" then return math.clamp(side, 1, numCols) end
+        if side == "Right" then return numCols end
+        if side == "Mid" or side == "Center" then return math.min(2, numCols) end
+        return 1 -- Left / default
+    end
+
     -- UN category "Visuals" (barra superior) + cada tab del schema = Section (sidebar izquierdo)
-    function A.Tab(window, name, icon)
+    function A.Tab(window, name, icon, numCols)
         if not window.__visualsCat then
             window.__visualsCat = window:AddCategory("Visuals", "eye")
         end
-        local sec = window.__visualsCat:AddSection(name)
-        return { cat = window.__visualsCat, sec = sec }
+        numCols = numCols or 2
+        local sec = window.__visualsCat:AddSection(name, nil, { Columns = numCols })
+        return { cat = window.__visualsCat, sec = sec, numCols = numCols }
     end
     function A.Group(tab, name, side)
-        return tab.sec:AddPanel(name, { Column = side == "Right" and 2 or 1 })
+        return tab.sec:AddPanel(name, { Column = sideToCol(side, tab.numCols or 2) })
     end
     function A.Widget(panel, kind, flag, opts)
         local m = ADD[kind]

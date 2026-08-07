@@ -3,13 +3,27 @@ return function(GV)
     local KIND_KEYS = { "Text", "Default", "Min", "Max", "Decimals", "Suffix", "Values", "Multi",
         "Searchable", "Tooltip", "Header", "Placeholder", "Numeric", "Keybind", "OffAtMin" }
 
+    -- cuenta columnas por tab: 3 si algun grupo usa side "Mid"/"Center" o col numerica >=3.
+    local function tabColumns(schema)
+        local m = {}
+        for _, row in ipairs(schema) do
+            local n = 2
+            local s = row.side
+            if s == "Mid" or s == "Center" then n = 3
+            elseif type(s) == "number" then n = math.clamp(s, 1, 4) end
+            if not m[row.tab] or m[row.tab] < n then m[row.tab] = n end
+        end
+        return m
+    end
+
     function R.build(adapter, window, schema, world)
         assert(GV.Facade.validate(adapter))
         local handles, byFlag = {}, {}
+        local cols = tabColumns(schema)
         local curTabName, curTab, curKey, curGroup
         for _, row in ipairs(schema) do
             if row.tab ~= curTabName then
-                curTab = adapter.Tab(window, row.tab, row.icon); curTabName = row.tab; curKey = nil
+                curTab = adapter.Tab(window, row.tab, row.icon, cols[row.tab] or 2); curTabName = row.tab; curKey = nil
             end
             local gk = row.tab .. "|" .. row.group .. "|" .. (row.side or "Left")
             if gk ~= curKey then

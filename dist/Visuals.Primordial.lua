@@ -1269,7 +1269,7 @@ do local chunk = "return function(GV)\r\
 \r\
     function SelfFX:_applyHitmarker(t)\r\
         local hud = self:_makeHUD()\r\
-        local active = self:_flag(\"Hitmarker\", false) and self._hitUntil and tick() < self._hitUntil\r\
+        local active = (self:_flag(\"Hitmarker\", false) and self._hitUntil and tick() < self._hitUntil) and true or false\r\
         for _, l in ipairs(hud.hit) do l.Visible = active end\r\
         if not active then return end\r\
         local cam = self.Services.Workspace.CurrentCamera; if not cam then return end\r\
@@ -1401,13 +1401,27 @@ do local chunk = "return function(GV)\r\
     local KIND_KEYS = { \"Text\", \"Default\", \"Min\", \"Max\", \"Decimals\", \"Suffix\", \"Values\", \"Multi\",\r\
         \"Searchable\", \"Tooltip\", \"Header\", \"Placeholder\", \"Numeric\", \"Keybind\", \"OffAtMin\" }\r\
 \r\
+    -- cuenta columnas por tab: 3 si algun grupo usa side \"Mid\"/\"Center\" o col numerica >=3.\r\
+    local function tabColumns(schema)\r\
+        local m = {}\r\
+        for _, row in ipairs(schema) do\r\
+            local n = 2\r\
+            local s = row.side\r\
+            if s == \"Mid\" or s == \"Center\" then n = 3\r\
+            elseif type(s) == \"number\" then n = math.clamp(s, 1, 4) end\r\
+            if not m[row.tab] or m[row.tab] < n then m[row.tab] = n end\r\
+        end\r\
+        return m\r\
+    end\r\
+\r\
     function R.build(adapter, window, schema, world)\r\
         assert(GV.Facade.validate(adapter))\r\
         local handles, byFlag = {}, {}\r\
+        local cols = tabColumns(schema)\r\
         local curTabName, curTab, curKey, curGroup\r\
         for _, row in ipairs(schema) do\r\
             if row.tab ~= curTabName then\r\
-                curTab = adapter.Tab(window, row.tab, row.icon); curTabName = row.tab; curKey = nil\r\
+                curTab = adapter.Tab(window, row.tab, row.icon, cols[row.tab] or 2); curTabName = row.tab; curKey = nil\r\
             end\r\
             local gk = row.tab .. \"|\" .. row.group .. \"|\" .. (row.side or \"Left\")\r\
             if gk ~= curKey then\r\
@@ -1617,16 +1631,26 @@ do local chunk = "return function(GV)\r\
     local ADD = { toggle = \"AddToggle\", slider = \"AddSlider\", dropdown = \"AddDropdown\",\r\
         colorpicker = \"AddColorPicker\", label = \"AddLabel\", textbox = \"AddTextBox\", button = \"AddButton\" }\r\
 \r\
+    -- side -> columna. Left=1, Mid/Center=2, Right=ultima columna del tab (numCols).\r\
+    -- side numerico => columna explicita. Permite tabs de 3 columnas para grupos chicos.\r\
+    local function sideToCol(side, numCols)\r\
+        if type(side) == \"number\" then return math.clamp(side, 1, numCols) end\r\
+        if side == \"Right\" then return numCols end\r\
+        if side == \"Mid\" or side == \"Center\" then return math.min(2, numCols) end\r\
+        return 1 -- Left / default\r\
+    end\r\
+\r\
     -- UN category \"Visuals\" (barra superior) + cada tab del schema = Section (sidebar izquierdo)\r\
-    function A.Tab(window, name, icon)\r\
+    function A.Tab(window, name, icon, numCols)\r\
         if not window.__visualsCat then\r\
             window.__visualsCat = window:AddCategory(\"Visuals\", \"eye\")\r\
         end\r\
-        local sec = window.__visualsCat:AddSection(name)\r\
-        return { cat = window.__visualsCat, sec = sec }\r\
+        numCols = numCols or 2\r\
+        local sec = window.__visualsCat:AddSection(name, nil, { Columns = numCols })\r\
+        return { cat = window.__visualsCat, sec = sec, numCols = numCols }\r\
     end\r\
     function A.Group(tab, name, side)\r\
-        return tab.sec:AddPanel(name, { Column = side == \"Right\" and 2 or 1 })\r\
+        return tab.sec:AddPanel(name, { Column = sideToCol(side, tab.numCols or 2) })\r\
     end\r\
     function A.Widget(panel, kind, flag, opts)\r\
         local m = ADD[kind]\r\
@@ -1892,69 +1916,72 @@ do local chunk = "return function(GV)\r\
 end\r\
 "
 local f = loadstring(chunk, '@schema/esp.lua')(); f(GV) end
-do local chunk = "return function(GV)\r\
-    local C = Color3.fromRGB\r\
-    local ACC = C(96, 130, 255)\r\
-    local S = {}\r\
-    local function add(r) table.insert(S, r) end\r\
-    local function color(toggle, base, text, group, side, default, default2)\r\
-        GV.pushCF(S, { toggle = toggle, base = base, text = text, tab = \"Local\", group = group, side = side,\r\
-            default = default, default2 = default2 or ACC })\r\
-    end\r\
-    local TAB = \"Local\"\r\
-\r\
-    -- Camara (Left)\r\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_Enabled\", type = \"toggle\", text = \"Enable Local\", default = false, keybind = true, master = true }\r\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_FOV\", type = \"toggle\", text = \"FOV changer\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_FOVValue\", type = \"slider\", text = \"FOV\", min = 40, max = 120, default = 70, dependsOn = \"Local_FOV\" }\r\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_ThirdPerson\", type = \"toggle\", text = \"3ra persona\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_ThirdPersonDistance\", type = \"slider\", text = \"3ra persona distancia\", min = 5, max = 30, default = 12, dependsOn = \"Local_ThirdPerson\" }\r\
-    -- Custom Aspect Ratio: stretch por matriz CFrame (funciona en cualquier executor)\r\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_Aspect\", type = \"toggle\", text = \"Aspect ratio (stretch)\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_AspectH\", type = \"slider\", text = \"Horizontal\", min = 0.3, max = 3, default = 1, decimals = 2, dependsOn = \"Local_Aspect\" }\r\
-    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_AspectV\", type = \"slider\", text = \"Vertical\", min = 0.3, max = 3, default = 1, decimals = 2, dependsOn = \"Local_Aspect\" }\r\
-\r\
-    -- Crosshair (Left)\r\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_Crosshair\", type = \"toggle\", text = \"Crosshair\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    color(\"Local_Crosshair\", \"Local_CrosshairColor\", \"Crosshair color\", \"Crosshair\", \"Left\", C(0, 255, 120))\r\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairStyle\", type = \"dropdown\", text = \"Estilo\", values = { \"Cross\", \"Dot\", \"Circle\", \"T\" }, default = \"Cross\", dependsOn = \"Local_Crosshair\" }\r\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairSize\", type = \"slider\", text = \"Tamano\", min = 2, max = 40, default = 10, dependsOn = \"Local_Crosshair\" }\r\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairGap\", type = \"slider\", text = \"Gap\", min = 0, max = 20, default = 4, dependsOn = \"Local_Crosshair\" }\r\
-    add{ tab = TAB, group = \"Crosshair\", side = \"Left\", flag = \"Local_CrosshairThickness\", type = \"slider\", text = \"Grosor\", min = 1, max = 6, default = 1, dependsOn = \"Local_Crosshair\" }\r\
-\r\
-    -- Hitmarker (Right)\r\
-    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_Hitmarker\", type = \"toggle\", text = \"Hitmarker (necesita hitSignal del perfil)\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    color(\"Local_Hitmarker\", \"Local_HitmarkerColor\", \"Hitmarker color\", \"Hitmarker\", \"Right\", C(255, 255, 255))\r\
-    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerSize\", type = \"slider\", text = \"Tamano\", min = 2, max = 30, default = 8, dependsOn = \"Local_Hitmarker\" }\r\
-    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerGap\", type = \"slider\", text = \"Gap\", min = 0, max = 20, default = 4, dependsOn = \"Local_Hitmarker\" }\r\
-    add{ tab = TAB, group = \"Hitmarker\", side = \"Right\", flag = \"Local_HitmarkerDuration\", type = \"slider\", text = \"Duracion\", min = 0.05, max = 1, default = 0.3, decimals = 2, dependsOn = \"Local_Hitmarker\" }\r\
-\r\
-    -- HUD (Right)\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_Watermark\", type = \"toggle\", text = \"Watermark\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    color(\"Local_Watermark\", \"Local_WatermarkColor\", \"Watermark color\", \"HUD\", \"Right\", C(235, 235, 240))\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_FPS\", type = \"toggle\", text = \"  FPS\", default = true, dependsOn = \"Local_Watermark\" }\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Ping\", type = \"toggle\", text = \"  ping\", default = true, dependsOn = \"Local_Watermark\" }\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Name\", type = \"toggle\", text = \"  nombre\", default = true, dependsOn = \"Local_Watermark\" }\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Time\", type = \"toggle\", text = \"  hora\", default = false, dependsOn = \"Local_Watermark\" }\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WatermarkX\", type = \"slider\", text = \"Watermark X\", min = 0, max = 2000, default = 10, dependsOn = \"Local_Watermark\" }\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WatermarkY\", type = \"slider\", text = \"Watermark Y\", min = 0, max = 1200, default = 8, dependsOn = \"Local_Watermark\" }\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindList\", type = \"toggle\", text = \"Lista de keybinds\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    color(\"Local_KeybindList\", \"Local_KeybindColor\", \"Keybinds color\", \"HUD\", \"Right\", C(235, 235, 240))\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindX\", type = \"slider\", text = \"Keybinds X\", min = 0, max = 2000, default = 10, dependsOn = \"Local_KeybindList\" }\r\
-    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindY\", type = \"slider\", text = \"Keybinds Y\", min = 0, max = 1200, default = 120, dependsOn = \"Local_KeybindList\" }\r\
-\r\
-    -- Extras (Right)\r\
-    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_AntiFlash\", type = \"toggle\", text = \"Anti-flash\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_AntiSmoke\", type = \"toggle\", text = \"Anti-humo (necesita perfil)\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_SelfChams\", type = \"toggle\", text = \"Self-chams (Highlight, detectable)\", default = false, dependsOn = \"Local_Enabled\" }\r\
-    color(\"Local_SelfChams\", \"Local_SelfChamsFill\", \"Self-chams fill\", \"Extras\", \"Right\", C(0, 200, 255))\r\
-    color(\"Local_SelfChams\", \"Local_SelfChamsOutline\", \"Self-chams outline\", \"Extras\", \"Right\", C(180, 240, 255))\r\
-    add{ tab = TAB, group = \"Extras\", side = \"Right\", flag = \"Local_SelfChamsFillTransparency\", type = \"slider\", text = \"Self-chams transp\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"Local_SelfChams\" }\r\
-\r\
-    GV.Modules = GV.Modules or {}\r\
-    GV.Modules.selffx = GV.Modules.selffx or {}\r\
-    GV.Modules.selffx.schema = S\r\
-end\r\
+do local chunk = "return function(GV)\
+    local C = Color3.fromRGB\
+    local ACC = C(96, 130, 255)\
+    local S = {}\
+    local function add(r) table.insert(S, r) end\
+    local function color(toggle, base, text, group, side, default, default2)\
+        GV.pushCF(S, { toggle = toggle, base = base, text = text, tab = \"Local\", group = group, side = side,\
+            default = default, default2 = default2 or ACC })\
+    end\
+    local TAB = \"Local\"\
+\
+    -- Layout de 3 columnas (grupos chicos): col1=Camara+Extras, col2=Crosshair+Hitmarker, col3=HUD.\
+    -- side \"Mid\" activa el 3er panel de fondo. En ClaudeUI (2 cajas) \"Mid\" cae a la izquierda.\
+\
+    -- Camara (col 1 / Left)\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_Enabled\", type = \"toggle\", text = \"Enable Local\", default = false, keybind = true, master = true }\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_FOV\", type = \"toggle\", text = \"FOV changer\", default = false, dependsOn = \"Local_Enabled\" }\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_FOVValue\", type = \"slider\", text = \"FOV\", min = 40, max = 120, default = 70, dependsOn = \"Local_FOV\" }\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_ThirdPerson\", type = \"toggle\", text = \"3ra persona\", default = false, dependsOn = \"Local_Enabled\" }\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_ThirdPersonDistance\", type = \"slider\", text = \"3ra persona distancia\", min = 5, max = 30, default = 12, dependsOn = \"Local_ThirdPerson\" }\
+    -- Custom Aspect Ratio: stretch por matriz CFrame (funciona en cualquier executor)\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_Aspect\", type = \"toggle\", text = \"Aspect ratio (stretch)\", default = false, dependsOn = \"Local_Enabled\" }\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_AspectH\", type = \"slider\", text = \"Horizontal\", min = 0.3, max = 3, default = 1, decimals = 2, dependsOn = \"Local_Aspect\" }\
+    add{ tab = TAB, group = \"Camara\", side = \"Left\", flag = \"Local_AspectV\", type = \"slider\", text = \"Vertical\", min = 0.3, max = 3, default = 1, decimals = 2, dependsOn = \"Local_Aspect\" }\
+\
+    -- Extras (col 1 / Left)\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"Local_AntiFlash\", type = \"toggle\", text = \"Anti-flash\", default = false, dependsOn = \"Local_Enabled\" }\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"Local_AntiSmoke\", type = \"toggle\", text = \"Anti-humo (necesita perfil)\", default = false, dependsOn = \"Local_Enabled\" }\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"Local_SelfChams\", type = \"toggle\", text = \"Self-chams (Highlight, detectable)\", default = false, dependsOn = \"Local_Enabled\" }\
+    color(\"Local_SelfChams\", \"Local_SelfChamsFill\", \"Self-chams fill\", \"Extras\", \"Left\", C(0, 200, 255))\
+    color(\"Local_SelfChams\", \"Local_SelfChamsOutline\", \"Self-chams outline\", \"Extras\", \"Left\", C(180, 240, 255))\
+    add{ tab = TAB, group = \"Extras\", side = \"Left\", flag = \"Local_SelfChamsFillTransparency\", type = \"slider\", text = \"Self-chams transp\", min = 0, max = 1, default = 0.5, decimals = 2, dependsOn = \"Local_SelfChams\" }\
+\
+    -- Crosshair (col 2 / Mid)\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Mid\", flag = \"Local_Crosshair\", type = \"toggle\", text = \"Crosshair\", default = false, dependsOn = \"Local_Enabled\" }\
+    color(\"Local_Crosshair\", \"Local_CrosshairColor\", \"Crosshair color\", \"Crosshair\", \"Mid\", C(0, 255, 120))\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Mid\", flag = \"Local_CrosshairStyle\", type = \"dropdown\", text = \"Estilo\", values = { \"Cross\", \"Dot\", \"Circle\", \"T\" }, default = \"Cross\", dependsOn = \"Local_Crosshair\" }\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Mid\", flag = \"Local_CrosshairSize\", type = \"slider\", text = \"Tamano\", min = 2, max = 40, default = 10, dependsOn = \"Local_Crosshair\" }\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Mid\", flag = \"Local_CrosshairGap\", type = \"slider\", text = \"Gap\", min = 0, max = 20, default = 4, dependsOn = \"Local_Crosshair\" }\
+    add{ tab = TAB, group = \"Crosshair\", side = \"Mid\", flag = \"Local_CrosshairThickness\", type = \"slider\", text = \"Grosor\", min = 1, max = 6, default = 1, dependsOn = \"Local_Crosshair\" }\
+\
+    -- Hitmarker (col 2 / Mid)\
+    add{ tab = TAB, group = \"Hitmarker\", side = \"Mid\", flag = \"Local_Hitmarker\", type = \"toggle\", text = \"Hitmarker (necesita hitSignal del perfil)\", default = false, dependsOn = \"Local_Enabled\" }\
+    color(\"Local_Hitmarker\", \"Local_HitmarkerColor\", \"Hitmarker color\", \"Hitmarker\", \"Mid\", C(255, 255, 255))\
+    add{ tab = TAB, group = \"Hitmarker\", side = \"Mid\", flag = \"Local_HitmarkerSize\", type = \"slider\", text = \"Tamano\", min = 2, max = 30, default = 8, dependsOn = \"Local_Hitmarker\" }\
+    add{ tab = TAB, group = \"Hitmarker\", side = \"Mid\", flag = \"Local_HitmarkerGap\", type = \"slider\", text = \"Gap\", min = 0, max = 20, default = 4, dependsOn = \"Local_Hitmarker\" }\
+    add{ tab = TAB, group = \"Hitmarker\", side = \"Mid\", flag = \"Local_HitmarkerDuration\", type = \"slider\", text = \"Duracion\", min = 0.05, max = 1, default = 0.3, decimals = 2, dependsOn = \"Local_Hitmarker\" }\
+\
+    -- HUD (col 3 / Right)\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_Watermark\", type = \"toggle\", text = \"Watermark\", default = false, dependsOn = \"Local_Enabled\" }\
+    color(\"Local_Watermark\", \"Local_WatermarkColor\", \"Watermark color\", \"HUD\", \"Right\", C(235, 235, 240))\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_FPS\", type = \"toggle\", text = \"  FPS\", default = true, dependsOn = \"Local_Watermark\" }\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Ping\", type = \"toggle\", text = \"  ping\", default = true, dependsOn = \"Local_Watermark\" }\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Name\", type = \"toggle\", text = \"  nombre\", default = true, dependsOn = \"Local_Watermark\" }\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WM_Time\", type = \"toggle\", text = \"  hora\", default = false, dependsOn = \"Local_Watermark\" }\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WatermarkX\", type = \"slider\", text = \"Watermark X\", min = 0, max = 2000, default = 10, dependsOn = \"Local_Watermark\" }\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_WatermarkY\", type = \"slider\", text = \"Watermark Y\", min = 0, max = 1200, default = 8, dependsOn = \"Local_Watermark\" }\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindList\", type = \"toggle\", text = \"Lista de keybinds\", default = false, dependsOn = \"Local_Enabled\" }\
+    color(\"Local_KeybindList\", \"Local_KeybindColor\", \"Keybinds color\", \"HUD\", \"Right\", C(235, 235, 240))\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindX\", type = \"slider\", text = \"Keybinds X\", min = 0, max = 2000, default = 10, dependsOn = \"Local_KeybindList\" }\
+    add{ tab = TAB, group = \"HUD\", side = \"Right\", flag = \"Local_KeybindY\", type = \"slider\", text = \"Keybinds Y\", min = 0, max = 1200, default = 120, dependsOn = \"Local_KeybindList\" }\
+\
+    GV.Modules = GV.Modules or {}\
+    GV.Modules.selffx = GV.Modules.selffx or {}\
+    GV.Modules.selffx.schema = S\
+end\
 "
 local f = loadstring(chunk, '@schema/local.lua')(); f(GV) end
 do local chunk = "return function(GV)\r\
