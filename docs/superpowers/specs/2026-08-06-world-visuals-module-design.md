@@ -56,18 +56,18 @@ Group(tabHandle, name, side)           -> groupHandle
 Widget(groupHandle, kind, flag, opts, parentHandle) -> widgetHandle
 Depend(widgetHandle, flag, value)      -> void
 ```
-`kind` ∈ {toggle, slider, dropdown, colorpicker, label}. Un validador asegura que el adapter tenga los 4 métodos antes de renderizar.
+`kind` ∈ {toggle, slider, dropdown, colorpicker, label, textbox, button}. Un validador asegura que el adapter cubra todos los kinds antes de renderizar. `button` lleva `opts.Callback` de acción (no flag); `label` no lleva callback.
 
 ### `ui/adapter_claudeui.lua`
 - Tab → `Window:AddTab(name)`
 - Group(Left) → `Tab:AddLeftGroupbox(name)`; (Right) → `AddRightGroupbox`
-- Widget → `groupHandle:AddToggle/AddSlider/AddDropdown/AddColorPicker/AddLabel(flag, opts)`
+- Widget → `groupHandle:AddToggle/AddSlider/AddDropdown/AddColorPicker/AddLabel(flag, opts)`; textbox → `AddInput`; button → `AddButton(text, cb)`.
 - Dependencia: nesting nativo → si viene `parentHandle`, usa `parentHandle:AddX(...)` en vez de `groupHandle:AddX(...)`. `Depend` es no-op (ya se nesteó al crear).
 
 ### `ui/adapter_primordial.lua`
 - Tab → `Window:AddCategory(name, icon)` + un `AddSection(name)` interno
 - Group(Left) → `Section:AddPanel(name,{Column=1})`; (Right) → `{Column=2}`
-- Widget → `panel:AddToggle/AddSlider/...(flag, opts)`
+- Widget → `panel:AddToggle/AddSlider/AddDropdown/AddColorPicker/AddLabel(flag, opts)`; textbox → `AddTextBox`; button → `AddButton(text, cb)`.
 - Dependencia: `Depend(widget, flag, val)` → `widget:DependsOn(flag, val)`
 
 ### `ui/renderer.lua`
