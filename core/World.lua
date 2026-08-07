@@ -65,7 +65,11 @@ return function(GV)
     -- crear (una vez) un efecto propio, nombrado como los del juego para no cantar en scan
     function World:_fx(class, parent)
         local got = self._fxCache[class]
-        if got and got.Parent then return got end
+        if got then
+            -- reusar el cache; si el juego lo despareento, re-attach (Parent==nil)
+            if not got.Parent then pcall(function() got.Parent = parent or self.Services.Lighting end) end
+            return got
+        end
         local inst = Instance.new(class)
         inst.Name = "LightingController"
         pcall(function() inst.Parent = parent or self.Services.Lighting end)
@@ -197,10 +201,62 @@ return function(GV)
         self._fxCache.Atmosphere = nil
     end
 
+    -- E. Post-FX
+    function World:_applyPost()
+        local cc = self:_fx("ColorCorrectionEffect")
+        cc.Enabled = self:_flag("World_Tint", false)
+        if cc.Enabled then
+            cc.Brightness = self:_flag("World_TintBrightness", 0)
+            cc.Contrast   = self:_flag("World_TintContrast", 0)
+            cc.Saturation = self:_flag("World_TintSaturation", 0)
+            if self:_flag("World_RainbowHue", false) then
+                local t = (tick() * self:_flag("World_RainbowSpeed", 1)) % 1
+                cc.TintColor = Color3.fromHSV(t, 0.5, 1)
+            else
+                cc.TintColor = self:_flag("World_TintColor", WHITE)
+            end
+        end
+        local bm = self:_fx("BloomEffect")
+        bm.Enabled = self:_flag("World_Bloom", false)
+        if bm.Enabled then
+            bm.Intensity = self:_flag("World_BloomIntensity", 0.4)
+            bm.Size = self:_flag("World_BloomSize", 24)
+            bm.Threshold = self:_flag("World_BloomThreshold", 0.95)
+        end
+        local sr = self:_fx("SunRaysEffect")
+        sr.Enabled = self:_flag("World_SunRays", false)
+        if sr.Enabled then
+            sr.Intensity = self:_flag("World_SunRaysIntensity", 0.05)
+            sr.Spread = self:_flag("World_SunRaysSpread", 0.5)
+        end
+        local df = self:_fx("DepthOfFieldEffect")
+        df.Enabled = self:_flag("World_DoF", false)
+        if df.Enabled then
+            df.FocusDistance = self:_flag("World_DoFFocus", 25)
+            df.InFocusRadius = self:_flag("World_DoFRadius", 10)
+            df.NearIntensity = self:_flag("World_DoFNear", 0)
+            df.FarIntensity  = self:_flag("World_DoFFar", 0.75)
+        end
+        local bu = self:_fx("BlurEffect")
+        bu.Enabled = self:_flag("World_WorldBlur", false)
+        if bu.Enabled then bu.Size = self:_flag("World_WorldBlurSize", 12) end
+        if self:_flag("World_KillGamePostFX", false) then
+            local ok, kids = pcall(function() return self.Services.Lighting:GetChildren() end)
+            if ok and kids then
+                for _, e in ipairs(kids) do
+                    if e:IsA("PostEffect") and not table.find(self._made, e) then
+                        self:_set(e, "Enabled", false)
+                    end
+                end
+            end
+        end
+    end
+
     function World:_installApplies()
         self:_register(self._applyLighting)
         self:_register(self._applyTime)
         self:_register(self._applyFog)
+        self:_register(self._applyPost)
     end
 
     GV.World = World
