@@ -61,5 +61,61 @@ return function(GV)
         table.clear(self._orig)
     end
 
+    -- crear (una vez) un efecto propio, nombrado como los del juego para no cantar en scan
+    function World:_fx(class, parent)
+        local got = self._fxCache[class]
+        if got and got.Parent then return got end
+        local inst = Instance.new(class)
+        inst.Name = "LightingController"
+        pcall(function() inst.Parent = parent or self.Services.Lighting end)
+        self._fxCache[class] = inst
+        table.insert(self._made, inst)
+        return inst
+    end
+
+    function World:_register(fn) table.insert(self._applies, fn) end
+
+    function World:_step()
+        if not self:_flag("World_Enabled", false) then
+            if self._wasOn then self:_off() end
+            return
+        end
+        self._wasOn = true
+        for _, fn in ipairs(self._applies) do
+            local ok, err = pcall(fn, self)
+            if not ok then warn("[World] apply: " .. tostring(err)) end
+        end
+    end
+
+    function World:_off()
+        self._wasOn = false
+        for _, inst in pairs(self._fxCache) do
+            pcall(function() if inst:IsA("PostEffect") then inst.Enabled = false end end)
+        end
+        self:_restoreAll()
+    end
+
+    function World:Init()
+        if self.Loaded then return self end
+        self.Loaded = true
+        local conn = self.Services.RunService.RenderStepped:Connect(function()
+            local ok, err = pcall(function() self:_step() end)
+            if not ok then warn("[World] step: " .. tostring(err)) end
+        end)
+        self.Conns[#self.Conns + 1] = conn
+        return self
+    end
+
+    function World:Unload()
+        if not self.Loaded then return end
+        self.Loaded = false
+        for _, c in ipairs(self.Conns) do pcall(function() c:Disconnect() end) end
+        table.clear(self.Conns)
+        self:_restoreAll()
+        for _, inst in ipairs(self._made) do pcall(function() inst:Destroy() end) end
+        table.clear(self._made)
+        self._fxCache = {}
+    end
+
     GV.World = World
 end
