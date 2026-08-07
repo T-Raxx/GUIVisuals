@@ -93,6 +93,7 @@ return function(GV)
         for _, inst in pairs(self._fxCache) do
             pcall(function() if inst:IsA("PostEffect") then inst.Enabled = false end end)
         end
+        self:_killAtmosphere() -- destruir, no Density=0: si queda, mata el fog
         self:_restoreAll()
     end
 
@@ -165,9 +166,41 @@ return function(GV)
         end
     end
 
+    -- C. Fog  +  D. Atmosphere (destroy-on-off)
+    function World:_applyFog()
+        local L = self.Services.Lighting
+        if self:_flag("World_NoFog", false) then
+            self:_set(L, "FogStart", 0); self:_set(L, "FogEnd", 1e6)
+        else
+            self:_set(L, "FogStart", self:_flag("World_FogStart", 0))
+            self:_set(L, "FogEnd", self:_flag("World_FogEnd", 2500))
+            self:_set(L, "FogColor", self:_flag("World_FogColor", Color3.fromRGB(190, 195, 210)))
+        end
+        if self:_flag("World_Atmosphere", false) then
+            local a = self:_fx("Atmosphere")
+            a.Density = self:_flag("World_AtmDensity", 0.3)
+            a.Offset  = self:_flag("World_AtmOffset", 0.25)
+            a.Glare   = self:_flag("World_AtmGlare", 0)
+            a.Haze    = self:_flag("World_AtmHaze", 0)
+            a.Color   = self:_flag("World_AtmColor", Color3.fromRGB(199, 199, 199))
+            a.Decay   = self:_flag("World_AtmDecay", Color3.fromRGB(106, 112, 125))
+        else
+            self:_killAtmosphere()
+        end
+    end
+
+    function World:_killAtmosphere()
+        local a = self._fxCache and self._fxCache.Atmosphere
+        if not a then return end
+        for i, inst in ipairs(self._made) do if inst == a then table.remove(self._made, i) break end end
+        pcall(function() a:Destroy() end)
+        self._fxCache.Atmosphere = nil
+    end
+
     function World:_installApplies()
         self:_register(self._applyLighting)
         self:_register(self._applyTime)
+        self:_register(self._applyFog)
     end
 
     GV.World = World
