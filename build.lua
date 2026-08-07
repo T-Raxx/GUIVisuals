@@ -3,10 +3,10 @@
 -- Uso:  loadstring(readfile("GUIWorkspace/build.lua"))()(GV, "claudeui" | "primordial")
 return function(GV, target)
     local ORDER = {
-        "core/util.lua", "core/color.lua", "core/World.lua", "core/ESP.lua", "core/esp_default.lua",
+        "core/util.lua", "core/color.lua", "core/World.lua", "core/ESP.lua", "core/esp_default.lua", "core/selffx.lua",
         "ui/facade.lua", "ui/renderer.lua",
         target == "primordial" and "ui/adapter_primordial.lua" or "ui/adapter_claudeui.lua",
-        "schema/_helpers.lua", "schema/world.lua", "schema/esp.lua",
+        "schema/_helpers.lua", "schema/world.lua", "schema/esp.lua", "schema/local.lua",
         "games/rivals.lua", "games/_template.lua", "entry/attach.lua",
     }
     local parts = { "-- World Visuals (" .. target .. ") — build autogenerado\nlocal GV = {}\n" }
@@ -15,7 +15,7 @@ return function(GV, target)
         table.insert(parts, "do local chunk = " .. string.format("%q", src) .. "\n"
             .. "local f = loadstring(chunk, '@" .. p .. "')(); f(GV) end\n")
     end
-    table.insert(parts, "GV._defaultAdapter = '" .. target .. "'\nGV._defaultModules = {'world','esp'}\nreturn { Attach = GV.Attach, _GV = GV }\n")
+    table.insert(parts, "GV._defaultAdapter = '" .. target .. "'\nGV._defaultModules = {'world','esp','selffx'}\nreturn { Attach = GV.Attach, _GV = GV }\n")
     local out = table.concat(parts)
     if writefile then
         local name = target == "primordial" and "Visuals.Primordial.lua" or "Visuals.ClaudeUI.lua"

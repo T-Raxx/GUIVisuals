@@ -78,11 +78,30 @@ return function(GV)
         self:_set(plr, "CameraMaxZoomDistance", self:_flag("ThirdPersonDistance", 12))
     end
 
-    -- Anti-flash / anti-smoke (usa hooks del perfil; sin provider = no-op)
+    -- fallback genérico (game-agnostic): CC/Blur en Lighting con nombre flash/blind
+    function SelfFX:_genericFlashEffects()
+        local out = {}
+        local L = self.Services.Workspace and game:GetService("Lighting")
+        if not L then return out end
+        for _, e in ipairs(L:GetChildren()) do
+            if (e:IsA("ColorCorrectionEffect") or e:IsA("BlurEffect")) then
+                local n = string.lower(e.Name)
+                if n:find("flash") or n:find("blind") then table.insert(out, e) end
+            end
+        end
+        return out
+    end
+
+    -- Anti-flash / anti-smoke. Usa hooks del perfil si existen; si no, fallback genérico.
     function SelfFX:_applyAntiFlash()
-        if self:_flag("AntiFlash", false) and self._provider and self._provider.flashEffects then
-            local ok, list = pcall(self._provider.flashEffects)
-            if ok and list then for _, e in ipairs(list) do self:_set(e, "Enabled", false) end end
+        if self:_flag("AntiFlash", false) then
+            local list
+            if self._provider and self._provider.flashEffects then
+                local ok, r = pcall(self._provider.flashEffects); list = ok and r or nil
+            else
+                list = self:_genericFlashEffects()
+            end
+            if list then for _, e in ipairs(list) do self:_set(e, "Enabled", false) end end
         end
         if self:_flag("AntiSmoke", false) and self._provider and self._provider.smokeEffects then
             local ok, list = pcall(self._provider.smokeEffects)
