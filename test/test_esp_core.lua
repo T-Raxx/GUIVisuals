@@ -1,0 +1,15 @@
+local GV = loadstring(readfile("GUIWorkspace/init.lua"))()
+local T = GV.T
+T.truthy(GV.ESP and type(GV.ESP.new) == "function", "GV.ESP.new existe")
+T.truthy(GV.Modules.esp and type(GV.Modules.esp.new) == "function", "esp registrado")
+local shared = {}
+local e = GV.ESP.new({ flags = shared, provider = { getTargets = function() return {} end } })
+e:Set("ESP_MaxDistance", 500)
+T.eq(shared.ESP_MaxDistance, 500, "usa flags compartido")
+local d = e:_draw("Square", { Thickness = 1 })
+T.truthy(d and d.Remove, "_draw crea un Drawing")
+e:Init()
+T.truthy(e.Loaded, "Init marca Loaded")
+e:Unload()
+T.truthy(not e.Loaded, "Unload limpia")
+T.report()

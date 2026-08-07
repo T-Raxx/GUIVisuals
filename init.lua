@@ -6,6 +6,8 @@ local ORDER = {
     "core/util.lua",
     "core/color.lua",
     "core/World.lua",
+    "core/ESP.lua",
+    "core/esp_default.lua",
     "ui/facade.lua",
     "ui/renderer.lua",
     "ui/adapter_claudeui.lua",
