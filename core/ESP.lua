@@ -326,12 +326,89 @@ return function(GV)
                 if not (model and model.Parent) then self.Objects[model] = nil end
             end
         end
+        self:_updateObjects()
     end
 
     function ESP:_passFilters(tg)
         if self:_flag("DeadCheck", false) and (tg.health or 0) <= 0 then return false end
         if self:_flag("PlayersOnly", false) and tg.isPlayer == false then return false end
         return true
+    end
+
+    -- Object ESP: fuentes declaradas por el perfil (tag o clase) -> box+name+dist
+    function ESP:_updateObjects()
+        self._objBundles = self._objBundles or {}
+        local live = {}
+        if self:_flag("Objects", false) and self._objectSources then
+            local cam = self.Services.Workspace.CurrentCamera
+            if cam then
+                local origin, vp, t = cam.CFrame.Position, cam.ViewportSize, tick()
+                for _, src in ipairs(self._objectSources) do
+                    if self:_flag("Obj_" .. (src.key or src.name), true) then
+                        local insts = {}
+                        if src.tag then insts = self.Services.CollectionService:GetTagged(src.tag)
+                        elseif src.classFilter then
+                            for _, d in ipairs(self.Services.Workspace:GetDescendants()) do
+                                if d:IsA(src.classFilter) then table.insert(insts, d) end
+                            end
+                        end
+                        for _, inst in ipairs(insts) do
+                            local part = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart")
+                            if part then
+                                local dist = (part.Position - origin).Magnitude
+                                if dist <= (src.maxDistance or self:_flag("MaxDistance", 1200)) then
+                                    live[inst] = true
+                                    local ob = self._objBundles[inst]
+                                    if not ob then
+                                        ob = { box = self:_draw("Square", { Filled = false, Thickness = 1 }),
+                                            name = self:_draw("Text", { Center = true, Outline = true }),
+                                            dist = self:_draw("Text", { Center = true, Outline = true }) }
+                                        self._objBundles[inst] = ob
+                                    end
+                                    local v = cam:WorldToViewportPoint(part.Position)
+                                    if v.Z > 0 then
+                                        local col = src.color or GV.Color.fade(self.Flags, "ESP_ObjectColor", t)
+                                        local ts = self:_flag("TextSize", 13)
+                                        ob.box.Visible = true; ob.box.Color = col; ob.box.Size = Vector2.new(14, 14); ob.box.Position = Vector2.new(v.X - 7, v.Y - 7)
+                                        ob.name.Visible = true; ob.name.Text = src.name; ob.name.Color = col; ob.name.Size = ts; ob.name.Position = Vector2.new(v.X, v.Y - 18)
+                                        ob.dist.Visible = true; ob.dist.Text = math.floor(dist) .. "m"; ob.dist.Color = col; ob.dist.Size = ts; ob.dist.Position = Vector2.new(v.X, v.Y + 10)
+                                    else
+                                        for _, o in pairs(ob) do o.Visible = false end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        for inst, ob in pairs(self._objBundles) do
+            if not live[inst] then
+                for _, o in pairs(ob) do pcall(function() o.Visible = false end) end
+                if not (inst and inst.Parent) then self._objBundles[inst] = nil end
+            end
+        end
+    end
+
+    -- Preview mode: dibuja box+skeleton de UN modelo con una camara de ViewportFrame (para §D)
+    function ESP:RenderPreview(cam, model)
+        if not (cam and model) then return end
+        self._preview = self._preview or { box = self:_draw("Square", { Filled = false, Thickness = 1 }), skel = {} }
+        local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChildWhichIsA("BasePart")
+        local head = model:FindFirstChild("Head") or root
+        if not root then return end
+        local t = tick()
+        local topV = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.6, 0))
+        local botV = cam:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+        if topV.Z > 0 then
+            local h = math.abs(botV.Y - topV.Y); local w = h * 0.62
+            self._preview.box.Visible = true
+            self._preview.box.Color = GV.Color.fade(self.Flags, "ESP_BoxColor", t)
+            self._preview.box.Size = Vector2.new(w, h)
+            self._preview.box.Position = Vector2.new(topV.X - w / 2, topV.Y)
+        else
+            self._preview.box.Visible = false
+        end
     end
 
     function ESP:Init()
