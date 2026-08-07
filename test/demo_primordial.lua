@@ -1,0 +1,16 @@
+-- Corre en Baseplate con PrimordialUI (dist) en el workspace del executor.
+local GV = loadstring(readfile("GUIWorkspace/init.lua"))()
+local Lib = loadstring(readfile("PrimordialUI/dist/PrimordialUI.lua"))()
+local Window = Lib:CreateWindow({ Title = "World", Size = Vector2.new(834, 586) })
+local world = GV.World.new({})
+local n = #GV.Renderer.build(GV.Adapters.primordial, Window, GV.Schema, world)
+world:Init()
+task.wait(0.4)
+print("[TEST] demo_primordial widgets=" .. n .. " -> " .. (n > 40 and "PASS" or "FAIL"))
+world:Set("World_Enabled", true); world:Set("World_Fullbright", true)
+task.wait(0.2)
+local b = game:GetService("Lighting").Brightness
+print("[TEST] fullbright Brightness=" .. tostring(b) .. " -> " .. (b == 1 and "PASS" or "FAIL"))
+world:Unload()
+task.wait(0.1)
+print("[TEST] demo_primordial unload OK")
