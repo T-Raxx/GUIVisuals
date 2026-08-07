@@ -61,7 +61,7 @@ return function(GV)
         end
         if self:_flag("ThirdPerson", false) then
             if self._provider and self._provider.setThirdPerson then self._provider.setThirdPerson(true)
-            else self:_thirdPersonGeneric(cam) end
+            else self:_thirdPersonGeneric() end
         end
         local am = self:_flag("AspectMode", "Off")
         if am ~= "Off" then
@@ -70,8 +70,44 @@ return function(GV)
         end
     end
 
-    -- 3ra persona genérica (best-effort): sin provider no forzamos; placeholder para L5.
-    function SelfFX:_thirdPersonGeneric(cam) end
+    -- 3ra persona genérica (best-effort): habilita zoom-out (restaurado en unload).
+    function SelfFX:_thirdPersonGeneric()
+        local plr = self.Services.Players and self.Services.Players.LocalPlayer
+        if not plr then return end
+        pcall(function() self:_set(plr, "CameraMode", Enum.CameraMode.Classic) end)
+        self:_set(plr, "CameraMaxZoomDistance", self:_flag("ThirdPersonDistance", 12))
+    end
+
+    -- Anti-flash / anti-smoke (usa hooks del perfil; sin provider = no-op)
+    function SelfFX:_applyAntiFlash()
+        if self:_flag("AntiFlash", false) and self._provider and self._provider.flashEffects then
+            local ok, list = pcall(self._provider.flashEffects)
+            if ok and list then for _, e in ipairs(list) do self:_set(e, "Enabled", false) end end
+        end
+        if self:_flag("AntiSmoke", false) and self._provider and self._provider.smokeEffects then
+            local ok, list = pcall(self._provider.smokeEffects)
+            if ok and list then for _, e in ipairs(list) do self:_set(e, "Enabled", false) end end
+        end
+    end
+
+    -- Self-chams (Highlight sobre el char propio, detectable)
+    function SelfFX:_applySelfChams(t)
+        local plr = self.Services.Players and self.Services.Players.LocalPlayer
+        local char = plr and plr.Character
+        if not self:_flag("SelfChams", false) or not char then
+            local h = self.Highlights["self"]; if h then h.Enabled = false end
+            return
+        end
+        local h = self.Highlights["self"]
+        if not h or not h.Parent then
+            h = Instance.new("Highlight"); h.Name = "LC"; h.Parent = self.Services.Workspace.CurrentCamera
+            self.Highlights["self"] = h
+        end
+        h.Adornee = char; h.Enabled = true
+        h.FillColor = GV.Color.fade(self.Flags, "Local_SelfChamsFill", t)
+        h.OutlineColor = GV.Color.fade(self.Flags, "Local_SelfChamsOutline", t)
+        h.FillTransparency = self:_flag("SelfChamsFillTransparency", 0.5)
+    end
 
     -- Crosshair (Drawing centrado en pantalla)
     function SelfFX:_makeCrosshair()
@@ -209,6 +245,8 @@ return function(GV)
         self:_applyWatermark(now)
         self:_applyHitmarker(now)
         self:_applyKeybindList(now)
+        self:_applyAntiFlash()
+        self:_applySelfChams(now)
     end
 
     function SelfFX:Init()
