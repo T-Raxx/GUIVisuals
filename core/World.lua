@@ -46,6 +46,17 @@ return function(GV)
         end
     end
 
+    -- perfil de juego: defaults, texturas, filtro de parts (bloque J), schema extra
+    function World:UseProfile(p)
+        if not p then return end
+        if p.defaults then
+            for k, v in pairs(p.defaults) do if self.Flags[k] == nil then self.Flags[k] = v end end
+        end
+        self._mapFilter = p.mapFilter
+        self._tex = p.textures
+        self._profileSchema = p.extraSchema
+    end
+
     function World:_set(obj, prop, val)
         if not obj then return end
         local ok, cur = pcall(function() return obj[prop] end)
