@@ -4,6 +4,7 @@ local files = {
     "test_apply_ab", "test_apply_cd", "test_apply_e", "test_apply_fg", "test_apply_hi",
     "test_apply_jk", "test_world_fade", "test_facade", "test_renderer", "test_schema",
     "test_profile", "test_build",
+    "test_esp_core", "test_esp_provider", "test_esp_filters", "test_esp_schema",
 }
 for _, f in ipairs(files) do
     print("=== " .. f .. " ===")
