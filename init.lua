@@ -11,6 +11,7 @@ local ORDER = {
     "core/selffx.lua",
     "ui/facade.lua",
     "ui/renderer.lua",
+    "ui/preview.lua",
     "ui/adapter_claudeui.lua",
     "ui/adapter_primordial.lua",
     "schema/_helpers.lua",
