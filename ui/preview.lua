@@ -15,6 +15,12 @@ return function(GV)
         local flags = suite.flags
         local self = { suite = suite, _made = {}, _conns = {}, _grid = {} }
 
+        -- limpiar previews huérfanos (mounts previos que quedaron sin unload por reconexion)
+        pcall(function()
+            for _, g in ipairs(huiParent():GetChildren()) do
+                if g:IsA("ScreenGui") and g.Name:sub(1, 6) == "PUIpv_" then g:Destroy() end
+            end
+        end)
         local gui = Instance.new("ScreenGui")
         gui.Name = "PUIpv_" .. tostring(math.random(1e5, 9e5))
         gui.ResetOnSpawn = false; gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
