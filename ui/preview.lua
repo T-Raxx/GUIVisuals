@@ -13,7 +13,7 @@ return function(GV)
     function Preview.mount(suite, opts)
         opts = opts or {}
         local flags = suite.flags
-        local self = { suite = suite, _made = {}, _conns = {}, _grid = {} }
+        local self = { suite = suite, _made = {}, _conns = {} }
 
         -- limpiar previews huérfanos (mounts previos que quedaron sin unload por reconexion)
         pcall(function()
@@ -80,34 +80,9 @@ return function(GV)
         hpBar.AnchorPoint = Vector2.new(0, 1); hpBar.Position = UDim2.new(0, 0, 1, 0); hpBar.Size = UDim2.new(1, 0, 0.7, 0); hpBar.ZIndex = 4; hpBar.Parent = hpBg
         self._hpBg, self._hpBar = hpBg, hpBar
 
-        function self:_buildGrid()
-            for _, p in ipairs(self._grid) do pcall(function() p:Destroy() end) end
-            self._grid = {}
-            if not self._center then return end
-            local ext = math.max(self._radius * 2.2, 6)
-            local step = ext / 5
-            local y = self._center.Y - self._radius * 1.05
-            local col = Color3.fromRGB(70, 90, 110)
-            for i = -5, 5 do
-                for _, axis in ipairs({ "X", "Z" }) do
-                    local p = Instance.new("Part"); p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
-                    p.Material = Enum.Material.Neon; p.Color = col
-                    if axis == "X" then
-                        p.Size = Vector3.new(ext * 2, 0.04, 0.06)
-                        p.CFrame = CFrame.new(self._center.X, y, self._center.Z + i * step)
-                    else
-                        p.Size = Vector3.new(0.06, 0.04, ext * 2)
-                        p.CFrame = CFrame.new(self._center.X + i * step, y, self._center.Z)
-                    end
-                    p.Parent = self.World
-                    table.insert(self._grid, p)
-                end
-            end
-        end
-
         function self:SetModel(char)
             for _, c in ipairs(self.World:GetChildren()) do if c ~= nil then c:Destroy() end end
-            self._grid = {}; self.Model = nil
+            self.Model = nil
             if not char then return end
             local m; local prev = char.Archivable; char.Archivable = true
             pcall(function() m = char:Clone() end); char.Archivable = prev
@@ -120,7 +95,6 @@ return function(GV)
                 self._dist = self._radius / math.tan(math.rad(30)) + self._radius
             end
             self._angle = 0
-            self:_buildGrid()
         end
 
         function self:_apply(a)

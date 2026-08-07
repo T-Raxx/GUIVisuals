@@ -233,7 +233,10 @@ return function(GV)
         b.boxOl.Visible = showBox and self:_flag("BoxOutline", true)
         if showBox then
             b.box.Color = self:_col(tg, "ESP_BoxColor", t)
-            b.box.Filled = self:_flag("BoxFilled", false)
+            local filled = self:_flag("BoxFilled", false)
+            b.box.Filled = filled
+            -- Drawing.Transparency: 1=opaco, 0=invisible -> alpha del relleno
+            b.box.Transparency = filled and self:_flag("BoxFillAlpha", 0.35) or 1
             b.box.Thickness = self:_flag("BoxThickness", 1)
             b.box.Size = Vector2.new(w, h); b.box.Position = Vector2.new(x, y); b.box.ZIndex = 2
             b.boxOl.Size = b.box.Size; b.boxOl.Position = b.box.Position; b.boxOl.ZIndex = 1
@@ -299,6 +302,7 @@ return function(GV)
         local font = self:_flag("Font", 2)
         local textSize = self:_flag("TextSize", 13)
         local maxDist = self:_flag("MaxDistance", 1200)
+        if maxDist <= 0 then maxDist = math.huge end -- 0 = sin limite de distancia
         local maxTargets = self:_flag("MaxTargets", 50)
         local t = tick()
         local live, count = {}, 0

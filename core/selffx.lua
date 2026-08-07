@@ -51,17 +51,32 @@ return function(GV)
     -- NOTA aspect: en Potassium ViewportSize es read-only duro (setscriptable/sethiddenproperty
     -- no lo escriben) -> stretch pixel-real NO reproducible sin render-hooks. Mecanismo entregable:
     -- FieldOfViewMode (Vertical/Diagonal/MaxAxis) + MaxAxisFieldOfView, que altera el mapeo FOV<->aspecto.
+    -- restaura una prop guardada (revierte por-feature al apagar el toggle, sin esperar al master)
+    function SelfFX:_restoreOne(obj, prop)
+        local m = self._orig[obj]
+        if m and m[prop] ~= nil then pcall(function() obj[prop] = m[prop] end); m[prop] = nil end
+    end
+
     function SelfFX:_applyCamera()
         local cam = self.Services.Workspace.CurrentCamera
         if not cam then return end
+        -- FOV changer (cleanup al apagar)
         if self:_flag("FOV", false) then
             local fov = self:_flag("FOVValue", 70)
             if self._provider and self._provider.setFOV then self._provider.setFOV(fov - 70)
             else self:_set(cam, "FieldOfView", fov) end
+        else
+            if self._provider and self._provider.setFOV then self._provider.setFOV(0)
+            else self:_restoreOne(cam, "FieldOfView") end
         end
+        -- 3ra persona (cleanup al apagar)
+        local plr = self.Services.Players and self.Services.Players.LocalPlayer
         if self:_flag("ThirdPerson", false) then
             if self._provider and self._provider.setThirdPerson then self._provider.setThirdPerson(true)
             else self:_thirdPersonGeneric() end
+        else
+            if self._provider and self._provider.setThirdPerson then self._provider.setThirdPerson(false)
+            elseif plr then self:_restoreOne(plr, "CameraMode"); self:_restoreOne(plr, "CameraMaxZoomDistance") end
         end
     end
 
@@ -74,12 +89,9 @@ return function(GV)
         if not cam then return end
         local sx, sy = self:_flag("AspectH", 1), self:_flag("AspectV", 1)
         if sx == 1 and sy == 1 then return end
-        local cf = cam.CFrame; local p = cf.Position
-        local r, u, b = cf.RightVector, cf.UpVector, -cf.LookVector
-        cam.CFrame = CFrame.new(p.X, p.Y, p.Z,
-            r.X * sx, u.X * sy, b.X,
-            r.Y * sx, u.Y * sy, b.Y,
-            r.Z * sx, u.Z * sy, b.Z)
+        -- post-multiplicar por una matriz de escala en espacio LOCAL de la camara (escala Right/Up).
+        -- Corre en Camera+1 (cf ya ortonormal este frame) -> NO compone y es estable en cualquier pitch.
+        cam.CFrame = cam.CFrame * CFrame.new(0, 0, 0, sx, 0, 0, 0, sy, 0, 0, 0, 1)
     end
 
     -- 3ra persona genérica (best-effort): habilita zoom-out (restaurado en unload).
@@ -243,15 +255,23 @@ return function(GV)
     function SelfFX:_applyKeybindList(t)
         local hud = self:_makeHUD()
         for _, l in ipairs(hud.kb) do l.Visible = false end
+        if hud.kb[0] then hud.kb[0].Visible = false end
         if not self:_flag("KeybindList", false) then return end
-        local list = self._provider and self._provider.keybinds and self._provider.keybinds() or {}
+        -- fuente: provider.keybinds() > self._keybindList (features con keybind del schema)
+        local list
+        if self._provider and self._provider.keybinds then local ok, r = pcall(self._provider.keybinds); list = ok and r or nil end
+        list = list or self._keybindList or {}
         local col = GV.Color.fade(self.Flags, "Local_KeybindColor", t)
         local x, y = self:_flag("KeybindX", 10), self:_flag("KeybindY", 120)
+        local header = hud.kb[0]
+        if not header then header = self:_draw("Text", { Outline = true, Size = 13, Font = 3 }); hud.kb[0] = header end
+        header.Visible = true; header.Text = "[ keybinds ]"; header.Color = col; header.Position = Vector2.new(x, y); header.ZIndex = 10
         for i, kb in ipairs(list) do
             local o = hud.kb[i]
             if not o then o = self:_draw("Text", { Outline = true, Size = 13, Font = 2 }); hud.kb[i] = o end
-            o.Visible = true; o.Text = (kb.name or "?") .. ": " .. tostring(kb.key or "?")
-            o.Color = col; o.Position = Vector2.new(x, y + (i - 1) * 15); o.ZIndex = 10
+            o.Visible = true
+            o.Text = tostring(kb.name or "?") .. (kb.key and (" [" .. tostring(kb.key) .. "]") or "")
+            o.Color = col; o.Position = Vector2.new(x, y + i * 15); o.ZIndex = 10
         end
     end
 

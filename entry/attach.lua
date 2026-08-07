@@ -32,6 +32,14 @@ return function(GV)
             end
         end
         GV.Renderer.build(adapter, Window, schema, bag)
+        -- keybind-list generico: features con keybind del schema (para el HUD de SelfFX)
+        if suite.modules.selffx then
+            local kbl = {}
+            for _, r in ipairs(schema) do
+                if r.keybind and r.text then table.insert(kbl, { name = r.text, flag = r.flag }) end
+            end
+            suite.modules.selffx._keybindList = kbl
+        end
         for _, inst in pairs(suite.modules) do inst:Init() end
         -- Preview viewport: solo si el adapter lo soporta (Primordial). ClaudeUI = 0 instancias.
         if adapter.supportsPreview and opts.preview ~= false and GV.Preview then

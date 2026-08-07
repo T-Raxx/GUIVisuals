@@ -15,6 +15,7 @@ return function(GV)
     add{ tab = TAB, group = "General", side = "Left", flag = "ESP_Box", type = "toggle", text = "Box", default = true, dependsOn = "ESP_Enabled" }
     color("ESP_Box", "ESP_BoxColor", "Box color", "General", "Left", C(235, 235, 240))
     add{ tab = TAB, group = "General", side = "Left", flag = "ESP_BoxFilled", type = "toggle", text = "Box relleno", default = false, dependsOn = "ESP_Box" }
+    add{ tab = TAB, group = "General", side = "Left", flag = "ESP_BoxFillAlpha", type = "slider", text = "Relleno alpha", min = 0, max = 1, default = 0.35, decimals = 2, dependsOn = "ESP_BoxFilled" }
     add{ tab = TAB, group = "General", side = "Left", flag = "ESP_BoxOutline", type = "toggle", text = "Box contorno", default = true, dependsOn = "ESP_Box" }
     add{ tab = TAB, group = "General", side = "Left", flag = "ESP_BoxThickness", type = "slider", text = "Box grosor", min = 1, max = 5, default = 1, dependsOn = "ESP_Box" }
     add{ tab = TAB, group = "General", side = "Left", flag = "ESP_Name", type = "toggle", text = "Nombre", default = true, dependsOn = "ESP_Enabled" }
@@ -56,7 +57,7 @@ return function(GV)
     color("ESP_VisibleCheck", "ESP_HiddenColor", "Oculto color", "Color / Visibilidad", "Right", C(235, 64, 52))
 
     -- Filtros (Right)
-    add{ tab = TAB, group = "Filtros", side = "Right", flag = "ESP_MaxDistance", type = "slider", text = "Distancia max", min = 50, max = 5000, default = 1200, suffix = "st", dependsOn = "ESP_Enabled" }
+    add{ tab = TAB, group = "Filtros", side = "Right", flag = "ESP_MaxDistance", type = "slider", text = "Distancia max (0=sin limite)", min = 0, max = 5000, default = 1200, suffix = "st", dependsOn = "ESP_Enabled" }
     add{ tab = TAB, group = "Filtros", side = "Right", flag = "ESP_PlayersOnly", type = "toggle", text = "Solo jugadores", default = false, dependsOn = "ESP_Enabled" }
     add{ tab = TAB, group = "Filtros", side = "Right", flag = "ESP_TeamCheck", type = "toggle", text = "Team check", default = false, dependsOn = "ESP_Enabled" }
     add{ tab = TAB, group = "Filtros", side = "Right", flag = "ESP_DeadCheck", type = "toggle", text = "Ocultar muertos", default = true, dependsOn = "ESP_Enabled" }
