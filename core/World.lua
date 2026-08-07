@@ -94,6 +94,8 @@ return function(GV)
 
     function World:_off()
         self._wasOn = false
+        if self._wxEmit then self._wxEmit.Enabled = false end
+        self._lastWx = nil
         for _, inst in pairs(self._fxCache) do
             pcall(function() if inst:IsA("PostEffect") then inst.Enabled = false end end)
         end
@@ -282,12 +284,119 @@ return function(GV)
         self:_set(clouds, "Color", self:_flag("World_CloudColor", WHITE))
     end
 
+    -- H. Terrain / agua
+    function World:_applyWater()
+        local Terrain = self.Services.Terrain
+        if not Terrain or not self:_flag("World_WaterEnable", false) then return end
+        self:_set(Terrain, "WaterColor", self:_flag("World_WaterColor", Color3.fromRGB(12, 84, 92)))
+        self:_set(Terrain, "WaterTransparency", self:_flag("World_WaterTransparency", 0.3))
+        self:_set(Terrain, "WaterReflectance", self:_flag("World_WaterReflectance", 1))
+        self:_set(Terrain, "WaterWaveSize", self:_flag("World_WaterWaveSize", 0.15))
+        self:_set(Terrain, "WaterWaveSpeed", self:_flag("World_WaterWaveSpeed", 10))
+        self:_set(Terrain, "Decoration", self:_flag("World_TerrainDecoration", true))
+    end
+
+    -- I. Clima local (particulas sobre la camara). Texturas del cliente (no dependen de red).
+    local TEX_RAIN = "rbxassetid://13911374915" -- streaks
+    local TEX_SNOW = "rbxassetid://15414665346" -- dots
+    local WX = {
+        ["Lluvia"]        = { tex = TEX_RAIN, rate = 400,  speed = 105, life = 1.0,  size = 0.9,  squash = 6, spread = 1.5, drag = 0,   accel = Vector3.new(0, -35, 0),    transp = 0.45, light = 0.15, rot = 0,  rotSpeed = 0 },
+        ["Lluvia fuerte"] = { tex = TEX_RAIN, rate = 1400, speed = 150, life = 0.85, size = 1.15, squash = 9, spread = 2.5, drag = 0,   accel = Vector3.new(-14, -70, 0),  transp = 0.3,  light = 0.2,  rot = -9, rotSpeed = 0 },
+        ["Nieve"]         = { tex = TEX_SNOW, rate = 190,  speed = 6,   life = 6.5,  size = 0.28, squash = 0, spread = 26,  drag = 2.8, accel = Vector3.new(1.2, -2.4, 0.7), transp = 0.25, light = 0.05, rot = 0, rotSpeed = 22 },
+        ["Niebla"]        = { tex = TEX_SNOW, rate = 60,   speed = 2,   life = 9,    size = 6,    squash = 0, spread = 40,  drag = 4,   accel = Vector3.new(0.5, -0.4, 0.3), transp = 0.75, light = 0.02, rot = 0, rotSpeed = 4 },
+        ["Ceniza"]        = { tex = TEX_SNOW, rate = 120,  speed = 8,   life = 5,    size = 0.4,  squash = 0, spread = 30,  drag = 2,   accel = Vector3.new(2, -4, 1),      transp = 0.3,  light = 0.6,  rot = 0, rotSpeed = 30 },
+        ["Luciérnagas"]   = { tex = TEX_SNOW, rate = 40,   speed = 3,   life = 7,    size = 0.25, squash = 0, spread = 45,  drag = 3,   accel = Vector3.new(0, 0.2, 0),     transp = 0.1,  light = 1,    rot = 0, rotSpeed = 10 },
+        ["Custom"]        = { tex = TEX_SNOW, rate = 300,  speed = 20,  life = 4,    size = 1,    squash = 0, spread = 20,  drag = 1,   accel = Vector3.new(0, -10, 0),     transp = 0.3,  light = 0.3,  rot = 0, rotSpeed = 8 },
+    }
+
+    function World:_wxRig()
+        if self._wxPart and self._wxPart.Parent then return self._wxPart, self._wxEmit end
+        local p = Instance.new("Part")
+        p.Name = "Camera"
+        p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
+        p.Transparency = 1; p.Size = Vector3.new(1, 1, 1)
+        p.Parent = workspace
+        local e = Instance.new("ParticleEmitter")
+        e.Enabled = false
+        e.EmissionDirection = Enum.NormalId.Bottom
+        e.LockedToPart = false
+        e.Parent = p
+        self._wxPart, self._wxEmit = p, e
+        table.insert(self._made, p)
+        return p, e
+    end
+
+    function World:_applyWeather()
+        if not self:_flag("World_Weather", false) then
+            if self._wxEmit then self._wxEmit.Enabled = false end
+            self._lastWx = nil
+            return
+        end
+        local mode = self:_flag("World_WeatherMode", "Lluvia")
+        local cfg = WX[mode]; if not cfg then return end
+        local part, emit = self:_wxRig()
+        local cam = self.Services.Workspace and self.Services.Workspace.CurrentCamera
+        if not cam then return end
+        local area = self:_flag("World_WeatherArea", 90)
+        part.Size = Vector3.new(area, 1, area)
+        part.CFrame = CFrame.new(cam.CFrame.Position + Vector3.new(0, 28, 0))
+
+        if self._lastWx ~= mode then
+            self._lastWx = mode
+            local tex = cfg.tex
+            if mode == "Custom" then
+                local ct = self:_flag("World_WeatherCustomTex", "")
+                if ct ~= "" then tex = ct end
+            elseif self._tex then
+                if cfg.tex == TEX_RAIN and self._tex.rain then tex = self._tex.rain
+                elseif cfg.tex == TEX_SNOW and self._tex.snow then tex = self._tex.snow end
+            end
+            emit.Texture = tex
+            emit.Drag = cfg.drag
+            emit.Squash = NumberSequence.new(cfg.squash)
+            emit.SpreadAngle = Vector2.new(cfg.spread, cfg.spread)
+            emit.Rotation = NumberRange.new(cfg.rot)
+            emit.RotSpeed = NumberRange.new(-cfg.rotSpeed, cfg.rotSpeed)
+            emit.ZOffset = 0
+            emit.EmissionDirection = Enum.NormalId.Bottom
+        end
+        local dens = self:_flag("World_WeatherDensity", 1)
+        local spd  = self:_flag("World_WeatherSpeed", 1)
+        local sz   = self:_flag("World_WeatherSize", 1)
+        -- viento: rota la componente horizontal de la aceleracion
+        local wind = math.rad(self:_flag("World_WeatherWindDir", 0))
+        local accel = cfg.accel * spd
+        if wind ~= 0 then
+            local mag = math.abs(accel.X) + 6
+            accel = Vector3.new(math.sin(wind) * mag, accel.Y, math.cos(wind) * mag)
+        end
+        emit.Rate = cfg.rate * dens
+        emit.Lifetime = NumberRange.new(cfg.life * 0.85, cfg.life)
+        emit.Speed = NumberRange.new(cfg.speed * spd * 0.9, cfg.speed * spd)
+        emit.Acceleration = accel
+        emit.Size = NumberSequence.new(cfg.size * sz)
+        emit.Color = ColorSequence.new(self:_flag("World_WeatherColor", Color3.fromRGB(220, 230, 255)))
+        emit.LightEmission = self:_flag("World_WeatherGlow", cfg.light)
+        emit.Transparency = NumberSequence.new(self:_flag("World_WeatherTransparency", cfg.transp))
+        emit.Enabled = true
+        -- relampago: flash breve periodico (cosmetico, best-effort)
+        if self:_flag("World_Lightning", false) then
+            local now = tick()
+            if not self._lightNext or now >= self._lightNext then
+                self._lightNext = now + 3 + math.random() * 5
+                pcall(function() self.Services.Lighting.Brightness = self:_flag("World_Brightness", 3) + 6 end)
+            end
+        end
+    end
+
     function World:_installApplies()
         self:_register(self._applyLighting)
         self:_register(self._applyTime)
         self:_register(self._applyFog)
         self:_register(self._applyPost)
         self:_register(self._applySky)
+        self:_register(self._applyWater)
+        self:_register(self._applyWeather)
     end
 
     GV.World = World
