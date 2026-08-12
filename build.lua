@@ -3,11 +3,12 @@
 -- Uso:  loadstring(readfile("GUIWorkspace/build.lua"))()(GV, "claudeui" | "primordial")
 return function(GV, target)
     local ORDER = {
-        "core/util.lua", "core/color.lua", "core/World.lua", "core/ESP.lua", "core/esp_default.lua", "core/selffx.lua",
+        "core/util.lua", "core/tween.lua", "core/color.lua", "core/World.lua", "core/ESP.lua", "core/esp_default.lua",
+        "core/selffx.lua", "core/combat.lua", "core/aura.lua",
         "ui/facade.lua", "ui/renderer.lua", "ui/preview.lua",
         target == "primordial" and "ui/adapter_primordial.lua" or "ui/adapter_claudeui.lua",
-        "schema/_helpers.lua", "schema/world.lua", "schema/esp.lua", "schema/local.lua",
-        "games/rivals.lua", "games/_template.lua", "entry/attach.lua",
+        "schema/_helpers.lua", "schema/world.lua", "schema/esp.lua", "schema/local.lua", "schema/combat.lua", "schema/aura.lua",
+        "games/rivals.lua", "games/_template.lua", "games/lifeinprison.lua", "entry/attach.lua",
     }
     local parts = { "-- World Visuals (" .. target .. ") — build autogenerado\nlocal GV = {}\n" }
     for _, p in ipairs(ORDER) do
