@@ -5,13 +5,19 @@
 -- Mecanismo (identico a juju): cada aura es un Model "plantilla" cuyos hijos directos son Parts
 -- placeholder nombrados como partes del char (UpperTorso/LowerTorso/Head/HumanoidRootPart/...),
 -- cada uno con Attachment/Beam/ParticleEmitter/PointLight como hijos. Al aplicar: clonar la
--- plantilla, y por cada Part placeholder buscar `char:FindFirstChild(placeholder.Name)`; si hay
--- match, reparentar sus hijos directos sobre la parte REAL (renombrados "\0\0"/"\0\0att" —
--- stealth, igual que juju); si no hay match, destruir ese placeholder (con sus hijos). NO se
--- reconstruye el rig ni se remapea nombre-por-nombre: LiP es R6 (ver docs/ops.md), asi que las
--- auras que usan nombres R15 (UpperTorso/LowerTorso/LeftUpperArm/...) solo prenden en las partes
--- que SI matchean (HumanoidRootPart/Head siempre existen en R6 y R15) — comportamiento fiel al
--- original, que tampoco remapea rigs.
+-- plantilla, y por cada Part placeholder buscar la parte REAL del char por nombre (ver
+-- `_resolvePart`); si hay match, reparentar sus hijos directos sobre ella (renombrados
+-- "\0\0"/"\0\0att" — stealth, igual que juju); si no hay match ni fallback, destruir ese
+-- placeholder (con sus hijos).
+--
+-- Adaptacion vs juju (necesaria, no cosmetica): LiP es R6 (ver docs/ops.md) pero los placeholders
+-- (propios y de varios de los 9 assets) usan nombres R15 (UpperTorso/LeftUpperArm/...). juju nunca
+-- necesita esto (corre en un juego R15) — un match por nombre EXACTO dejaria angel wing/blue
+-- heat/heal aura sin un solo emitter en R6 (UpperTorso/LowerTorso/LeftUpperArm/... no existen en
+-- ese rig). `_resolvePart` intenta el nombre exacto primero y cae a un mapa R15->R6 (ver
+-- R15_TO_R6) antes de descartar el placeholder. Varios nombres R15 colapsan al mismo Part R6
+-- (ej. UpperTorso y LowerTorso -> "Torso"): sus grupos de emitters terminan apilados en esa unica
+-- parte en vez de perderse — degradacion visual aceptable, cobertura completa del rig.
 --
 -- Adaptacion deliberada vs juju (no cambia el mecanismo, solo el momento): juju arma las 9 auras
 -- rbxassetid EAGER al cargar el modulo (9 game:GetObjects en la carga del cheat completo). Acá se
@@ -579,6 +585,24 @@ return function(GV)
         return v
     end
 
+    -- R15 -> R6 fallback (ver comentario de cabecera). Cubre las 15 nombres R15 estandar (mismos
+    -- que `body_parts` en jujudotlol.lua L8358-8374) por si algun asset los usa tambien.
+    local R15_TO_R6 = {
+        UpperTorso = "Torso", LowerTorso = "Torso",
+        LeftUpperArm = "Left Arm", LeftLowerArm = "Left Arm", LeftHand = "Left Arm",
+        RightUpperArm = "Right Arm", RightLowerArm = "Right Arm", RightHand = "Right Arm",
+        LeftUpperLeg = "Left Leg", LeftLowerLeg = "Left Leg", LeftFoot = "Left Leg",
+        RightUpperLeg = "Right Leg", RightLowerLeg = "Right Leg", RightFoot = "Right Leg",
+    }
+    -- nombre exacto primero (cubre R15 nativo si algun dia se porta a un juego R15, y cubre
+    -- Head/HumanoidRootPart que son iguales en ambos rigs); si no existe, intenta el equivalente R6.
+    function Aura:_resolvePart(char, name)
+        local part = char:FindFirstChild(name)
+        if part then return part end
+        local fallback = R15_TO_R6[name]
+        return fallback and char:FindFirstChild(fallback) or nil
+    end
+
     -- provider.localCharacter (a diferencia de onShot/onHit) es una funcion DIRECTA (no lazy) —
     -- ver games/lifeinprison.lua. Fallback a Players.LocalPlayer.Character si el perfil no la trae.
     function Aura:_char()
@@ -655,7 +679,7 @@ return function(GV)
             if template then
                 local cloned = template:Clone()
                 for _, part in ipairs(cloned:GetChildren()) do
-                    local localPart = char:FindFirstChild(part.Name)
+                    local localPart = self:_resolvePart(char, part.Name)
                     if localPart then
                         for _, child in ipairs(part:GetChildren()) do
                             if child:IsA("Attachment") then
@@ -670,7 +694,7 @@ return function(GV)
                             end
                         end
                     else
-                        part:Destroy() -- sin match en el rig (p.ej. nombre R15 sobre char R6)
+                        part:Destroy() -- sin match ni fallback R15->R6 (nombre no reconocido)
                     end
                 end
                 cloned:Destroy()
