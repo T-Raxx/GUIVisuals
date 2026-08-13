@@ -33,38 +33,38 @@ return function(GV)
     -- 1 solo set (brief lo permite explicitamente) -- ambos toggles cuelgan de Combat_Enabled, y
     -- los colorpickers compartidos tambien (no de un solo toggle de marker, porque cualquiera de
     -- los dos -- 3D o 2D -- los consume).
-    add{ tab = TAB, group = "Hitmarker", side = "Left", flag = "Combat_Marker3D", type = "toggle",
+    add{ tab = TAB, group = "Hitmarker", side = "Right", flag = "Combat_Marker3D", type = "toggle",
         text = "3D hit marker", default = false, dependsOn = "Combat_Enabled" }
-    add{ tab = TAB, group = "Hitmarker", side = "Left", flag = "Combat_Marker2D", type = "toggle",
+    add{ tab = TAB, group = "Hitmarker", side = "Right", flag = "Combat_Marker2D", type = "toggle",
         text = "2D hit marker", default = false, dependsOn = "Combat_Enabled" }
-    add{ tab = TAB, group = "Hitmarker", side = "Left", flag = "Combat_MarkerLifetime", type = "slider",
+    add{ tab = TAB, group = "Hitmarker", side = "Right", flag = "Combat_MarkerLifetime", type = "slider",
         text = "Lifetime", min = 0.1, max = 2, default = 0.7, decimals = 1, dependsOn = "Combat_Enabled" }
-    add{ tab = TAB, group = "Hitmarker", side = "Left", flag = "Combat_MarkerThickness", type = "slider",
+    add{ tab = TAB, group = "Hitmarker", side = "Right", flag = "Combat_MarkerThickness", type = "slider",
         text = "Thickness", min = 0, max = 4, default = 2, decimals = 0, dependsOn = "Combat_Enabled" }
     GV.pushCF(S, { toggle = "Combat_Enabled", base = "Combat_MarkerColor", text = "Marker color",
-        tab = TAB, group = "Hitmarker", side = "Left", default = C(133, 220, 255) })
+        tab = TAB, group = "Hitmarker", side = "Right", default = C(133, 220, 255) })
     GV.pushCF(S, { toggle = "Combat_Enabled", base = "Combat_MarkerLethal", text = "Marker lethal color",
-        tab = TAB, group = "Hitmarker", side = "Left", default = C(255, 0, 0) })
+        tab = TAB, group = "Hitmarker", side = "Right", default = C(255, 0, 0) })
     GV.pushCF(S, { toggle = "Combat_Enabled", base = "Combat_MarkerOutline", text = "Marker outline",
-        tab = TAB, group = "Hitmarker", side = "Left", default = C(15, 15, 15) })
+        tab = TAB, group = "Hitmarker", side = "Right", default = C(15, 15, 15) })
 
     -- Task 5 -- Damage Numbers (juju menu L13314-13321: "damage_number"). NO se porta
     -- "damage_number_show_ragebot_data" (LiP no tiene string de razon de resolver -- ver nota de
     -- adaptacion en core/combat.lua); el texto es siempre el valor numerico de damage.
-    add{ tab = TAB, group = "Damage Numbers", side = "Left", flag = "Combat_Damage", type = "toggle",
+    add{ tab = TAB, group = "Damage Numbers", side = "Right", flag = "Combat_Damage", type = "toggle",
         text = "Damage numbers", default = false, dependsOn = "Combat_Enabled" }
     -- valores del dropdown son strings numericos (mismo criterio que TracerType/TracerStyle) --
     -- core/combat.lua hace tonumber() al asignarlos a Drawing.Text.Font.
-    add{ tab = TAB, group = "Damage Numbers", side = "Left", flag = "Combat_DamageFont", type = "dropdown",
+    add{ tab = TAB, group = "Damage Numbers", side = "Right", flag = "Combat_DamageFont", type = "dropdown",
         text = "Font", values = { "0", "1", "2", "3" }, default = "2", dependsOn = "Combat_Damage" }
-    add{ tab = TAB, group = "Damage Numbers", side = "Left", flag = "Combat_DamageLifetime", type = "slider",
+    add{ tab = TAB, group = "Damage Numbers", side = "Right", flag = "Combat_DamageLifetime", type = "slider",
         text = "Lifetime", min = 0.7, max = 2, default = 0.7, decimals = 1, dependsOn = "Combat_Damage" }
     GV.pushCF(S, { toggle = "Combat_Damage", base = "Combat_DamageColor", text = "Damage color",
-        tab = TAB, group = "Damage Numbers", side = "Left", default = C(255, 255, 255) })
+        tab = TAB, group = "Damage Numbers", side = "Right", default = C(255, 255, 255) })
     GV.pushCF(S, { toggle = "Combat_Damage", base = "Combat_DamageLethal", text = "Damage lethal color",
-        tab = TAB, group = "Damage Numbers", side = "Left", default = C(255, 55, 55) })
+        tab = TAB, group = "Damage Numbers", side = "Right", default = C(255, 55, 55) })
     GV.pushCF(S, { toggle = "Combat_Damage", base = "Combat_DamageOutline", text = "Damage outline",
-        tab = TAB, group = "Damage Numbers", side = "Left", default = C(15, 15, 15) })
+        tab = TAB, group = "Damage Numbers", side = "Right", default = C(15, 15, 15) })
 
     -- Task 6 -- Target Ring (juju menu L20392-20395: "3d_target_circle" + color/gradient
     -- color colorpickers; thickness=2/ZIndex=10/speed=4 son constantes hardcoded en
@@ -117,18 +117,18 @@ return function(GV)
     -- Particles -- GV.Color.fade solo devuelve Color3, no transparency) -- se porta como
     -- constante fija CHAMS_TRANSPARENCY en core/combat.lua (valor 0.8, el default real del menu
     -- de juju), no como fila de menu propia.
-    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_Chams", type = "toggle",
+    add{ tab = TAB, group = "Hit Chams", side = "Right", flag = "Combat_Chams", type = "toggle",
         text = "Hit chams", default = false, dependsOn = "Combat_Enabled" }
-    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_ChamsOnlyLast", type = "toggle",
+    add{ tab = TAB, group = "Hit Chams", side = "Right", flag = "Combat_ChamsOnlyLast", type = "toggle",
         text = "Only last hit", default = false, dependsOn = "Combat_Chams" }
-    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_ChamsAnimation", type = "dropdown",
+    add{ tab = TAB, group = "Hit Chams", side = "Right", flag = "Combat_ChamsAnimation", type = "dropdown",
         text = "Animation", values = { "new fade", "fade", "none" }, default = "new fade", dependsOn = "Combat_Chams" }
-    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_ChamsType", type = "dropdown",
+    add{ tab = TAB, group = "Hit Chams", side = "Right", flag = "Combat_ChamsType", type = "dropdown",
         text = "Type", values = { "forcefield", "outline", "neon" }, default = "neon", dependsOn = "Combat_Chams" }
-    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_ChamsLifetime", type = "slider",
+    add{ tab = TAB, group = "Hit Chams", side = "Right", flag = "Combat_ChamsLifetime", type = "slider",
         text = "Lifetime", min = 0.1, max = 1.5, default = 0.8, decimals = 1, dependsOn = "Combat_Chams" }
     GV.pushCF(S, { toggle = "Combat_Chams", base = "Combat_ChamsColor", text = "Chams color",
-        tab = TAB, group = "Hit Chams", side = "Left", default = C(142, 242, 255) })
+        tab = TAB, group = "Hit Chams", side = "Right", default = C(142, 242, 255) })
 
     GV.Modules = GV.Modules or {}
     GV.Modules.combat = GV.Modules.combat or {}
