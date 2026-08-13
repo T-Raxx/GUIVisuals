@@ -12,6 +12,12 @@
 -- (do_d2_hit_marker, misma cruz fija en el centro de pantalla). Disparo: provider.onHit
 -- (player, part, damage, lethal) <- LIP.onHit. juju duplica los parametros por marker (3D/2D);
 -- acá se comparte 1 solo set (Combat_Marker*) para ambos, permitido explicitamente por el brief.
+--
+-- Task 5 (Damage Numbers, este bloque): port de jujudotlol.lua L13314-13321 (menu) + L14875-
+-- 14961 (do_damage_number). Disparo: mismo provider.onHit que Task 4. Texto = SOLO el valor
+-- numerico de damage redondeado -- LiP no tiene el string de "razon del resolver" que juju
+-- concatena via damage_number_show_ragebot_data; ese toggle/flag NO se porta (brief, nota de
+-- adaptacion: no inventar un string equivalente).
 return function(GV)
     local Combat = {}
     Combat.__index = Combat
@@ -24,6 +30,10 @@ return function(GV)
     -- expuestas en el menu): 3D L15013 (0.3s, quad-out), 2D L15134 (0.2s, quad-out).
     local MARKER3D_FADE_DUR = 0.3
     local MARKER2D_FADE_DUR = 0.2
+    -- offset de "rise" del damage number (juju L14879 show_offset = Vector3(0,1.5,0)). A
+    -- diferencia de los fades de arriba, la ventana de fade-out del damage number NO es una
+    -- constante fija -- es proporcional al lifetime de cada instancia (ver :_spawnDamageNumber).
+    local DAMAGE_RISE_OFFSET = Vector3.new(0, 1.5, 0)
 
     -- beams bank (juju L13364-13396, port 1:1 de props/valores por estilo). Se instancian LAZY
     -- (1 vez por estilo, cacheadas) y se clonan por disparo -- igual patron que Aura:_template.
@@ -66,6 +76,9 @@ return function(GV)
             -- de hitmarkers activos. 3D y 2D tienen pool/lista propios porque conviven al mismo
             -- tiempo (un hit puede spawnear ambos si los 2 toggles estan ON).
             _marker3DPool = {}, _active3D = {}, _marker2DPool = {}, _active2D = {},
+            -- Task 5: pool de Drawings "Text" (1 sola Drawing por numero, el outline vive en la
+            -- misma Drawing via Outline/OutlineColor) + lista de damage numbers activos.
+            _damagePool = {}, _activeDamage = {},
         }, Combat)
     end
 
@@ -379,6 +392,101 @@ return function(GV)
         end
     end
 
+    ------------------------------------------------------------------------------------------
+    -- Task 5 -- Damage Numbers: pool getter (1 sola Drawing "Text" -- a diferencia de los
+    -- bundles de Task 3/4, el outline vive en la MISMA Drawing via las props nativas
+    -- Outline/OutlineColor de "Text", no hace falta una 2da Drawing).
+    ------------------------------------------------------------------------------------------
+    function Combat:_damageText()
+        local t = table.remove(self._damagePool)
+        if t then return t end
+        return self:_draw("Text", { Center = false, Outline = true })
+    end
+    function Combat:_releaseDamageText(t)
+        t.Visible = false
+        table.insert(self._damagePool, t)
+    end
+
+    ------------------------------------------------------------------------------------------
+    -- Task 5 -- Damage Numbers: spawn (juju L14875-14961, do_damage_number). Color: lethal
+    -- (bool de provider.onHit) selecciona Combat_DamageLethal vs Combat_DamageColor, mismo
+    -- patron que Task 4. Texto: SOLO el valor numerico de damage, redondeado (ver nota de
+    -- adaptacion en el header del archivo -- no se porta "show ragebot data").
+    --
+    -- Animacion (adaptada del original, ver brief): 2 fases, mismo patron 2-fase que
+    -- tracers/markers de arriba --
+    --   fase 1 [0, lifetime): sube en world-space desde part_position hasta part_position +
+    --     DAMAGE_RISE_OFFSET (juju L14879 show_offset), ease-in (quad, t*t) via GV.Tween sobre
+    --     un campo NUMERICO propio de la entry (e.riseAlpha 0->1) -- mismo patron que
+    --     e.fadeAlpha de :_updateBeamTracers (GV.Tween/tweenStep no interpolan Vector3 escalado
+    --     por un alpha directamente, se reconstruye la posicion cada frame en :_updateDamage).
+    --     Transparency se mantiene opaca (=1) desde el spawn, sin fade-in propio -- juju SI
+    --     tiene un sub-fade-in (0->transparency durante los primeros lifetime/1.6s); se omite
+    --     acá para quedar consistente con el resto del archivo, que solo fadea UNA vez, al
+    --     final (mismo criterio que tracers/markers: Transparency=1 desde el spawn).
+    --   fase 2 [lifetime, lifetime*1.5): fade-out de Transparency 1->0, mismo gate que Task 3/4
+    --     ("not e.fading and elapsed>=lifetime" dispara el GV.Tween) -- PERO la duracion de esa
+    --     ventana NO es una constante fija del archivo (a diferencia de LINE_FADE_DUR/
+    --     MARKER3D_FADE_DUR): es proporcional al lifetime de CADA instancia (lifetime*0.5, juju
+    --     L14903 new_half = lifetime/2), porque el brief fija el ciclo de vida total en
+    --     "lifetime*1.5" (juju L14931 delay(lifetime+new_half, ...)). Se guarda como
+    --     e.fadeDur = e.lifetime * 0.5 en el momento del spawn.
+    ------------------------------------------------------------------------------------------
+    function Combat:_spawnDamageNumber(pos, damage, lethal, now)
+        local t = self:_damageText()
+        local font = tonumber(self:_flag("DamageFont", "2")) or 2
+        local color = lethal and GV.Color.fade(self.Flags, "Combat_DamageLethal", now)
+            or GV.Color.fade(self.Flags, "Combat_DamageColor", now)
+        local outline = GV.Color.fade(self.Flags, "Combat_DamageOutline", now)
+        local lifetime = self:_flag("DamageLifetime", 0.7)
+        t.Text = tostring(math.floor((tonumber(damage) or 0) + 0.5))
+        t.Size = 14
+        t.Font = font
+        t.Color = color
+        t.OutlineColor = outline
+        t.Transparency = 1
+        t.Visible = true
+        local entry = {
+            text = t, basePos = pos, spawnT = now, lifetime = lifetime,
+            fadeDur = lifetime * 0.5, fading = false, riseAlpha = 0,
+        }
+        GV.Tween(entry, { riseAlpha = 1 }, "quad", lifetime)
+        table.insert(self._activeDamage, entry)
+    end
+
+    ------------------------------------------------------------------------------------------
+    -- Task 5 -- Damage Numbers: per-frame update. basePos capturado 1 vez al spawn (igual que
+    -- Marker3D, no re-lee part.Position) + offset de rise reconstruido cada frame desde
+    -- e.riseAlpha (tweeneado por GV.tweenStep via GV.Tween en :_spawnDamageNumber, NO acá --
+    -- mismo split que e.fadeAlpha/_updateBeamTracers). Fuera de camara -> oculto (juju
+    -- L14924-14926, sin edge-clamp como los tracers de Task 3).
+    ------------------------------------------------------------------------------------------
+    function Combat:_updateDamage(now)
+        local cam = self.Services.Workspace.CurrentCamera
+        local list = self._activeDamage
+        for i = #list, 1, -1 do
+            local e = list[i]
+            local t = e.text
+            if not e.fading and (now - e.spawnT) >= e.lifetime then
+                e.fading = true; e.fadeStart = now
+                GV.Tween(t, { Transparency = 0 }, "quad", e.fadeDur)
+            end
+            if e.fading and (now - e.fadeStart) >= e.fadeDur then
+                self:_releaseDamageText(t)
+                table.remove(list, i)
+            elseif cam then
+                local worldPos = e.basePos + DAMAGE_RISE_OFFSET * e.riseAlpha
+                local vp, onScreen = cam:WorldToViewportPoint(worldPos)
+                if onScreen then
+                    t.Position = Vector2.new(vp.X + 13, vp.Y)
+                    t.Visible = true
+                else
+                    t.Visible = false
+                end
+            end
+        end
+    end
+
     -- ── triggers del provider ──
     function Combat:_onShot(origin, hitPos, isLocal)
         if not (self:_flag("Enabled", false) and self:_flag("Tracer", false)) then return end
@@ -389,10 +497,10 @@ return function(GV)
         else self:_spawnBeamTracer(origin, hitPos, now) end
     end
     function Combat:_onHit(plr, part, dmg, lethal)
-        -- Task 4 (Hitmarker 3D+2D, este bloque). Tasks 5/7/8 (Damage Numbers, Hit Particles, Hit
-        -- Chams) enganchan acá tambien mas adelante. Gate SOLO del lado del spawn (Combat_Enabled
-        -- + el toggle de cada marker) -- ver nota en :_update sobre por que los updaters corren
-        -- incondicionalmente.
+        -- Task 4 (Hitmarker 3D+2D) + Task 5 (Damage Numbers, este bloque). Tasks 7/8 (Hit
+        -- Particles, Hit Chams) enganchan acá tambien mas adelante. Gate SOLO del lado del spawn
+        -- (Combat_Enabled + el toggle de cada feature) -- ver nota en :_update sobre por que los
+        -- updaters corren incondicionalmente.
         if not self:_flag("Enabled", false) then return end
         local now = os.clock()
         if self:_flag("Marker3D", false) then
@@ -402,21 +510,27 @@ return function(GV)
         if self:_flag("Marker2D", false) then
             self:_spawnMarker2D(lethal, now)
         end
+        if self:_flag("Damage", false) then
+            local ok, pos = pcall(function() return part.Position end)
+            if ok and typeof(pos) == "Vector3" then self:_spawnDamageNumber(pos, dmg, lethal, now) end
+        end
     end
 
-    -- GV.tweenStep + TODOS los updaters (tracers + hitmarkers) corren SIEMPRE, sin gatear por
-    -- Combat_Enabled -- igual convencion que Aura:_update/ESP:_update (tweenStep incondicional).
-    -- Si se gatearan, apagar Combat_Enabled con un tracer/marker a mitad de fade lo congelaria
-    -- (Drawing/Beam visibles) para siempre hasta re-activar o Unload -- el pool nunca liberaria el
-    -- bundle ni el Beam se destruiria. El toggle solo debe frenar SPAWNS nuevos (ya gateado en
-    -- :_onShot/:_onHit); lo ya disparado debe poder terminar su ciclo de vida (fade ->
-    -- release/destroy) igual. Confirmado como review finding de Task 3, mandatorio para Task 4.
+    -- GV.tweenStep + TODOS los updaters (tracers + hitmarkers + damage numbers) corren SIEMPRE,
+    -- sin gatear por Combat_Enabled -- igual convencion que Aura:_update/ESP:_update (tweenStep
+    -- incondicional). Si se gatearan, apagar Combat_Enabled con un tracer/marker/numero a mitad
+    -- de fade lo congelaria (Drawing/Beam visibles) para siempre hasta re-activar o Unload -- el
+    -- pool nunca liberaria el bundle ni el Beam se destruiria. El toggle solo debe frenar SPAWNS
+    -- nuevos (ya gateado en :_onShot/:_onHit); lo ya disparado debe poder terminar su ciclo de
+    -- vida (fade -> release/destroy) igual. Confirmado como review finding de Task 3, mandatorio
+    -- para Task 4/5.
     function Combat:_update(now, dt)
         GV.tweenStep(now, dt)
         self:_updateLineTracers(now)
         self:_updateBeamTracers(now)
         self:_updateMarker3D(now)
         self:_updateMarker2D(now)
+        self:_updateDamage(now)
     end
 
     function Combat:Init()
@@ -459,13 +573,15 @@ return function(GV)
             pcall(function() e.att0:Destroy() end)
             pcall(function() e.att1:Destroy() end)
         end
-        -- hitmarkers (Task 4) NO necesitan destroy explicito -- sus Drawing "Line" (lineas +
-        -- outlines) ya se crearon via self:_draw y quedaron registradas en self.Drawings, cubiertas
-        -- por el loop de arriba. Solo hace falta vaciar los pools/listas de tracking.
+        -- hitmarkers (Task 4) y damage numbers (Task 5) NO necesitan destroy explicito -- sus
+        -- Drawing "Line"/"Text" ya se crearon via self:_draw y quedaron registradas en
+        -- self.Drawings, cubiertas por el loop de arriba. Solo hace falta vaciar los pools/listas
+        -- de tracking.
         table.clear(self.Conns); table.clear(self.Drawings); table.clear(self._made)
         table.clear(self._linePool); table.clear(self._activeLine); table.clear(self._activeBeam)
         table.clear(self._marker3DPool); table.clear(self._active3D)
         table.clear(self._marker2DPool); table.clear(self._active2D)
+        table.clear(self._damagePool); table.clear(self._activeDamage)
     end
 
     GV.Combat = Combat

@@ -48,6 +48,24 @@ return function(GV)
     GV.pushCF(S, { toggle = "Combat_Enabled", base = "Combat_MarkerOutline", text = "Marker outline",
         tab = TAB, group = "Hitmarker", side = "Left", default = C(15, 15, 15) })
 
+    -- Task 5 -- Damage Numbers (juju menu L13314-13321: "damage_number"). NO se porta
+    -- "damage_number_show_ragebot_data" (LiP no tiene string de razon de resolver -- ver nota de
+    -- adaptacion en core/combat.lua); el texto es siempre el valor numerico de damage.
+    add{ tab = TAB, group = "Damage Numbers", side = "Left", flag = "Combat_Damage", type = "toggle",
+        text = "Damage numbers", default = false, dependsOn = "Combat_Enabled" }
+    -- valores del dropdown son strings numericos (mismo criterio que TracerType/TracerStyle) --
+    -- core/combat.lua hace tonumber() al asignarlos a Drawing.Text.Font.
+    add{ tab = TAB, group = "Damage Numbers", side = "Left", flag = "Combat_DamageFont", type = "dropdown",
+        text = "Font", values = { "0", "1", "2", "3" }, default = "2", dependsOn = "Combat_Damage" }
+    add{ tab = TAB, group = "Damage Numbers", side = "Left", flag = "Combat_DamageLifetime", type = "slider",
+        text = "Lifetime", min = 0.7, max = 2, default = 0.7, decimals = 1, dependsOn = "Combat_Damage" }
+    GV.pushCF(S, { toggle = "Combat_Damage", base = "Combat_DamageColor", text = "Damage color",
+        tab = TAB, group = "Damage Numbers", side = "Left", default = C(255, 255, 255) })
+    GV.pushCF(S, { toggle = "Combat_Damage", base = "Combat_DamageLethal", text = "Damage lethal color",
+        tab = TAB, group = "Damage Numbers", side = "Left", default = C(255, 55, 55) })
+    GV.pushCF(S, { toggle = "Combat_Damage", base = "Combat_DamageOutline", text = "Damage outline",
+        tab = TAB, group = "Damage Numbers", side = "Left", default = C(15, 15, 15) })
+
     GV.Modules = GV.Modules or {}
     GV.Modules.combat = GV.Modules.combat or {}
     GV.Modules.combat.schema = S
