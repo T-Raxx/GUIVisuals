@@ -36,6 +36,24 @@
 --      Combat:_update (ver nota grande sobre :_update mas abajo), evitando el equivalente de
 --      "timer huerfano" que tendria un closure de juju cuyo `delay` nunca dispara si el modulo
 --      se descarga a mitad de vuelo (Unload cubre esto explicitamente, ver mandato del brief).
+--   3) (encontrado en verificacion LIVE, Task 9) juju filtra por `ClassName == "MeshPart"` en
+--      ambas variantes (L15338 solido, L15397 outline+Head) porque su juego de referencia (Da
+--      Hood) es R15 con el rig entero hecho de MeshPart. LiP es R6 y NINGUNA parte del cuerpo
+--      (Head/Torso/brazos/piernas/HumanoidRootPart) es MeshPart -- son `Part` comunes -- asi que
+--      un filtro `MeshPart`-only deja el clon solido VACIO (0 partes recoloreadas, sin error) y
+--      el outline solo cubre Head (unico cubierto por el fallback de nombre). Se amplia el
+--      filtro de seleccion de partes de MeshPart a BasePart (Material/Color/Transparency/
+--      Anchored/CanCollide son props de BasePart, no exclusivas de MeshPart) en :_buildChamsSolid
+--      y :_buildChamsOutline -- `TextureID` SI es exclusiva de MeshPart, queda gateada a
+--      `part:IsA("MeshPart")` adentro del pcall. HumanoidRootPart se excluye explicitamente
+--      (normalmente invisible/al centro del torso, sin valor visual) -- cae al mismo `else:
+--      destroy(part)` que ya la alcanzaba antes de este fix (no era MeshPart tampoco). Verificado
+--      LIVE ademas: LiP agrega 5 `RDCollision` Part por Character (Transparency=1,
+--      CanCollide=false -- hitboxes de ragdoll por-limb, invisibles); excluida junto a
+--      HumanoidRootPart (helper local `isChamsLimb`) para no dejarlas recoloreadas como cajas
+--      fantasma flotantes. El manejo de Accessory (busca un `MeshPart` hijo, lo extrae) NO
+--      cambia -- 1:1 juju, fuera de scope de este fix (accesorios con Handle no-MeshPart quedan
+--      intactos, igual que antes).
 return function(GV)
     local Combat = {}
     Combat.__index = Combat
@@ -1172,10 +1190,21 @@ return function(GV)
         return t
     end
 
+    -- que cuenta como "limb visible del cuerpo" para el filtro BasePart-general (adaptacion 3,
+    -- ver header). Ademas de HumanoidRootPart, LiP agrega 5 `RDCollision` Part por Character
+    -- (verificado LIVE: Transparency=1, CanCollide=false -- hitboxes de ragdoll por-limb,
+    -- invisibles) -- sin esta exclusion quedarian recoloreadas como cajas fantasma flotantes
+    -- sobre cada limb (ni HumanoidRootPart ni RDCollision son MeshPart, asi que el filtro viejo
+    -- las excluia "gratis"; el filtro nuevo, mas amplio, necesita excluirlas a mano). Compartida
+    -- por :_buildChamsSolid y :_buildChamsOutline.
+    local function isChamsLimb(part)
+        return part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Name ~= "RDCollision"
+    end
+
     -- juju do_hit_chams (L15319-15376), variantes forcefield/neon -- comparten esta logica de
     -- recolor, difieren solo en `material`. Devuelve `faders` (las Instances que el animador de
     -- :_updateChams debe fade/grow) + `growSizes` ([Instance]=Vector3, snapshot de Size ANTES de
-    -- crecer, solo para MeshPart -- usado por el animador "new fade").
+    -- crecer -- usado por el animador "new fade").
     --
     -- Adaptacion vs juju (ver brief "adapt, do not invent" + mandato de :_update sobre no-leak):
     -- juju itera TODOS los hijos del modelo en el animador (`get_children(model)`) y filtra ahi
@@ -1190,15 +1219,22 @@ return function(GV)
     -- completo (que perderia el clone entero silenciosamente, antes de llegar a
     -- self._activeChams/model.Parent) -- esa parte simplemente no entra en `faders`/`growSizes`
     -- (no se anima), el resto del clone sigue su curso normal.
+    -- NOTA (review finding, fix -- ver adaptacion 3 en el header del archivo): filtro ampliado de
+    -- MeshPart a BasePart (verificado LIVE: LiP es R6, todo el cuerpo son `Part` comunes, no
+    -- MeshPart -- el filtro viejo dejaba el clon solido vacio). `TextureID` es exclusiva de
+    -- MeshPart -- gateada adentro del pcall para no cortar el resto de props en una parte comun.
+    -- HumanoidRootPart/RDCollision excluidas via :isChamsLimb (caen al mismo `else:
+    -- destroy(part)` de siempre).
     function Combat:_buildChamsSolid(model, material, color)
         local faders, growSizes = {}, {}
         for _, part in ipairs(model:GetChildren()) do
-            if part:IsA("MeshPart") then
+            if isChamsLimb(part) then
+                local isMesh = part:IsA("MeshPart")
                 local ok = pcall(function()
                     part.Material = material
                     part.Color = color
                     part.Transparency = CHAMS_TRANSPARENCY
-                    part.TextureID = ""
+                    if isMesh then part.TextureID = "" end
                     part.CanCollide = false
                     part.Anchored = true
                     if part.Name == "Head" then
@@ -1231,29 +1267,33 @@ return function(GV)
                     part:Destroy() -- vacio (el hat ya salio, exito o no) -- siempre fuera del pcall, Destroy() no falla
                 end
             else
-                part:Destroy() -- Humanoid/HumanoidRootPart(no-mesh)/scripts/Shirt/Pants/BodyColors/etc.
+                part:Destroy() -- Humanoid/HumanoidRootPart/RDCollision/scripts/Shirt/Pants/BodyColors/etc.
             end
         end
         return faders, growSizes
     end
 
     -- juju do_hit_chams_outline (L15378-15425): oculta la parte real (Transparency=1) y clona un
-    -- SelectionBox adornado sobre ella, por cada MeshPart O la parte literal "Head" (cubre el
-    -- caso R6 donde Head es un Part comun, no MeshPart -- ver nota grande arriba sobre por que
-    -- do_hit_chams "solido" puede perder partes del cuerpo que no son MeshPart, la variante
-    -- outline NO tiene ese problema para Head especificamente). Sin growSizes (SelectionBox no
-    -- tiene Size) -- animType "new fade" fadea igual, solo sin el efecto de crecimiento.
+    -- SelectionBox adornado sobre ella, por cada parte visible del cuerpo. Sin growSizes
+    -- (SelectionBox no tiene Size) -- animType "new fade" fadea igual, solo sin el efecto de
+    -- crecimiento.
     -- NOTA (review finding, fix): mismo criterio pcall que :_buildChamsSolid arriba -- un fallo
     -- a mitad de una parte (ej. Adornee rechazado) no aborta el :_spawnChams completo. El
     -- `outline` sin trackear en `faders` (ok==false) igual se limpia solo: es descendiente de
     -- `model`, y ese Model entero se destruye en :_updateChams/Unload independientemente de
     -- `faders` -- no hay leak, solo pierde su animacion de fade individual.
+    -- NOTA (review finding, fix -- ver adaptacion 3 en el header del archivo): filtro ampliado de
+    -- "MeshPart O Head-por-nombre" a BasePart en general (verificado LIVE: LiP R6 -- juju's
+    -- fallback de nombre solo rescataba Head, dejando Torso/brazos/piernas sin outline). El
+    -- chequeo `isHead` se conserva SOLO para el strip del Decal "face" (logica sin relacion al
+    -- filtro de inclusion, que ahora cubre el cuerpo entero). HumanoidRootPart/RDCollision
+    -- excluidas via :isChamsLimb, mismo criterio que :_buildChamsSolid.
     function Combat:_buildChamsOutline(model, color)
         local template = self:_ensureChamsOutlineTemplate()
         local faders = {}
         for _, part in ipairs(model:GetChildren()) do
-            local isHead = part.Name == "Head"
-            if isHead or part:IsA("MeshPart") then
+            if isChamsLimb(part) then
+                local isHead = part.Name == "Head"
                 local partName = part.Name
                 local outline
                 local ok = pcall(function()
