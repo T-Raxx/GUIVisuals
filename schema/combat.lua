@@ -28,6 +28,26 @@ return function(GV)
     add{ tab = TAB, group = "Tracers", side = "Left", flag = "Combat_TracerLifetime", type = "slider",
         text = "Lifetime", min = 0.1, max = 1.5, default = 0.8, decimals = 1, dependsOn = "Combat_Tracer" }
 
+    -- Task 4 -- Hitmarker 3D + 2D (juju menu L13322-13335: "d3_hit_marker"/"d2_hit_marker").
+    -- juju duplica lifetime/thickness/color/lethal/outline por marker (3D y 2D); acá se comparte
+    -- 1 solo set (brief lo permite explicitamente) -- ambos toggles cuelgan de Combat_Enabled, y
+    -- los colorpickers compartidos tambien (no de un solo toggle de marker, porque cualquiera de
+    -- los dos -- 3D o 2D -- los consume).
+    add{ tab = TAB, group = "Hitmarker", side = "Left", flag = "Combat_Marker3D", type = "toggle",
+        text = "3D hit marker", default = false, dependsOn = "Combat_Enabled" }
+    add{ tab = TAB, group = "Hitmarker", side = "Left", flag = "Combat_Marker2D", type = "toggle",
+        text = "2D hit marker", default = false, dependsOn = "Combat_Enabled" }
+    add{ tab = TAB, group = "Hitmarker", side = "Left", flag = "Combat_MarkerLifetime", type = "slider",
+        text = "Lifetime", min = 0.1, max = 2, default = 0.7, decimals = 1, dependsOn = "Combat_Enabled" }
+    add{ tab = TAB, group = "Hitmarker", side = "Left", flag = "Combat_MarkerThickness", type = "slider",
+        text = "Thickness", min = 0, max = 4, default = 2, decimals = 0, dependsOn = "Combat_Enabled" }
+    GV.pushCF(S, { toggle = "Combat_Enabled", base = "Combat_MarkerColor", text = "Marker color",
+        tab = TAB, group = "Hitmarker", side = "Left", default = C(133, 220, 255) })
+    GV.pushCF(S, { toggle = "Combat_Enabled", base = "Combat_MarkerLethal", text = "Marker lethal color",
+        tab = TAB, group = "Hitmarker", side = "Left", default = C(255, 0, 0) })
+    GV.pushCF(S, { toggle = "Combat_Enabled", base = "Combat_MarkerOutline", text = "Marker outline",
+        tab = TAB, group = "Hitmarker", side = "Left", default = C(15, 15, 15) })
+
     GV.Modules = GV.Modules or {}
     GV.Modules.combat = GV.Modules.combat or {}
     GV.Modules.combat.schema = S

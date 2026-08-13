@@ -6,6 +6,12 @@
 -- Task 3 (Hit Tracers, este bloque): port de jujudotlol.lua L13276-13303 (menu) + L13364-13547
 -- (beams bank / do_beam_bullet_tracer / do_line_bullet_tracer). Disparo: provider.onShot
 -- (origin, hitPos, isLocal) <- LIP.Weapon.fireOne en cada op14.
+--
+-- Task 4 (Hitmarker 3D + 2D, este bloque): port de jujudotlol.lua L13322-13335 (menu) +
+-- L14965-15085 (do_d3_hit_marker, cruz anclada al punto de impacto en world-space) + L15089-15200
+-- (do_d2_hit_marker, misma cruz fija en el centro de pantalla). Disparo: provider.onHit
+-- (player, part, damage, lethal) <- LIP.onHit. juju duplica los parametros por marker (3D/2D);
+-- acá se comparte 1 solo set (Combat_Marker*) para ambos, permitido explicitamente por el brief.
 return function(GV)
     local Combat = {}
     Combat.__index = Combat
@@ -14,6 +20,10 @@ return function(GV)
     -- linea L13518 (0.3s tras el lifetime, quad ease); beam L13414/destroy_beam (0.2s, quad ease).
     local LINE_FADE_DUR = 0.3
     local BEAM_FADE_DUR = 0.2
+    -- ventanas de fade POST-lifetime de los hitmarkers (constantes fijas en juju tambien, no
+    -- expuestas en el menu): 3D L15013 (0.3s, quad-out), 2D L15134 (0.2s, quad-out).
+    local MARKER3D_FADE_DUR = 0.3
+    local MARKER2D_FADE_DUR = 0.2
 
     -- beams bank (juju L13364-13396, port 1:1 de props/valores por estilo). Se instancian LAZY
     -- (1 vez por estilo, cacheadas) y se clonan por disparo -- igual patron que Aura:_template.
@@ -52,6 +62,10 @@ return function(GV)
             -- Task 3: pool de Drawings (line mode, reusado entre disparos) + listas de tracers
             -- activos (line/beam) + cache de templates de Beam por estilo.
             _linePool = {}, _activeLine = {}, _activeBeam = {}, _beamTemplates = {},
+            -- Task 4: pools de bundles cruz (8 Drawing Line c/u: 4 lineas + 4 outlines) + listas
+            -- de hitmarkers activos. 3D y 2D tienen pool/lista propios porque conviven al mismo
+            -- tiempo (un hit puede spawnear ambos si los 2 toggles estan ON).
+            _marker3DPool = {}, _active3D = {}, _marker2DPool = {}, _active2D = {},
         }, Combat)
     end
 
@@ -224,6 +238,147 @@ return function(GV)
         end
     end
 
+    ------------------------------------------------------------------------------------------
+    -- Task 4 -- Hitmarker 3D + 2D: pool getters (bundle = cruz de 8 Drawing "Line": 4 lineas +
+    -- 4 outlines, mismo patron de pooling que _lineBundle de Task 3).
+    ------------------------------------------------------------------------------------------
+    function Combat:_markerBundle(pool)
+        local b = table.remove(pool)
+        if b then return b end
+        local lines, outlines = {}, {}
+        for i = 1, 4 do
+            lines[i] = self:_draw("Line", { ZIndex = 100 })
+            outlines[i] = self:_draw("Line", { ZIndex = 99 })
+        end
+        return { lines = lines, outlines = outlines }
+    end
+    function Combat:_releaseMarkerBundle(pool, b)
+        for i = 1, 4 do b.lines[i].Visible = false; b.outlines[i].Visible = false end
+        table.insert(pool, b)
+    end
+
+    -- geometria de la cruz (juju L15021-15039 / L15142-15160, identica en 3D y 2D): 4 trazos
+    -- diagonales cortos, uno por esquina, apuntando desde ±10px hacia ±5px del centro -- deja un
+    -- hueco en el medio (no es una X continua ni un circulo).
+    function Combat:_layoutMarkerCross(b, x, y)
+        local corners = {
+            { x - 10, y - 10, x - 5, y - 5 },
+            { x + 10, y - 10, x + 5, y - 5 },
+            { x - 10, y + 10, x - 5, y + 5 },
+            { x + 10, y + 10, x + 5, y + 5 },
+        }
+        for i = 1, 4 do
+            local c = corners[i]
+            local from, to = Vector2.new(c[1], c[2]), Vector2.new(c[3], c[4])
+            b.lines[i].From, b.lines[i].To = from, to
+            b.outlines[i].From, b.outlines[i].To = from, to
+        end
+    end
+
+    ------------------------------------------------------------------------------------------
+    -- Task 4 -- Hitmarker 3D + 2D: spawn. Color: lethal (bool de provider.onHit) selecciona
+    -- Combat_MarkerLethal vs Combat_MarkerColor (juju L14974/L15098: player_data[player][18]).
+    -- Transparency=1 inicial (visible, ver convencion "Drawing.Transparency: 1=opaco/0=invisible"
+    -- documentada en ESP.lua y usada igual por los tracers de Task 3).
+    ------------------------------------------------------------------------------------------
+    function Combat:_spawnMarker3D(pos, lethal, now)
+        local b = self:_markerBundle(self._marker3DPool)
+        local thickness = self:_flag("MarkerThickness", 2)
+        local color = lethal and GV.Color.fade(self.Flags, "Combat_MarkerLethal", now)
+            or GV.Color.fade(self.Flags, "Combat_MarkerColor", now)
+        local outline = GV.Color.fade(self.Flags, "Combat_MarkerOutline", now)
+        for i = 1, 4 do
+            b.lines[i].Thickness = thickness; b.lines[i].Color = color
+            b.lines[i].Transparency = 1; b.lines[i].Visible = true
+            b.outlines[i].Thickness = thickness + 2; b.outlines[i].Color = outline
+            b.outlines[i].Transparency = 1; b.outlines[i].Visible = true
+        end
+        table.insert(self._active3D, {
+            bundle = b, pos = pos, spawnT = now,
+            lifetime = self:_flag("MarkerLifetime", 0.7), fading = false,
+        })
+    end
+
+    function Combat:_spawnMarker2D(lethal, now)
+        local b = self:_markerBundle(self._marker2DPool)
+        local thickness = self:_flag("MarkerThickness", 2)
+        local color = lethal and GV.Color.fade(self.Flags, "Combat_MarkerLethal", now)
+            or GV.Color.fade(self.Flags, "Combat_MarkerColor", now)
+        local outline = GV.Color.fade(self.Flags, "Combat_MarkerOutline", now)
+        for i = 1, 4 do
+            b.lines[i].Thickness = thickness; b.lines[i].Color = color
+            b.lines[i].Transparency = 1; b.lines[i].Visible = true
+            b.outlines[i].Thickness = thickness + 2; b.outlines[i].Color = outline
+            b.outlines[i].Transparency = 1; b.outlines[i].Visible = true
+        end
+        table.insert(self._active2D, {
+            bundle = b, spawnT = now, lifetime = self:_flag("MarkerLifetime", 0.7), fading = false,
+        })
+    end
+
+    ------------------------------------------------------------------------------------------
+    -- Task 4 -- Hitmarker 3D + 2D: per-frame update (proyeccion/centro + fade). Mismo patron que
+    -- _updateLineTracers: fade se dispara una vez vencido el lifetime, release al pool al
+    -- terminar la ventana de fade.
+    ------------------------------------------------------------------------------------------
+    function Combat:_updateMarker3D(now)
+        local cam = self.Services.Workspace.CurrentCamera
+        local list = self._active3D
+        for i = #list, 1, -1 do
+            local e = list[i]
+            local b = e.bundle
+            if not e.fading and (now - e.spawnT) >= e.lifetime then
+                e.fading = true; e.fadeStart = now
+                for j = 1, 4 do
+                    GV.Tween(b.lines[j], { Transparency = 0 }, "quad", MARKER3D_FADE_DUR)
+                    GV.Tween(b.outlines[j], { Transparency = 0 }, "quad", MARKER3D_FADE_DUR)
+                end
+            end
+            if e.fading and (now - e.fadeStart) >= MARKER3D_FADE_DUR then
+                self:_releaseMarkerBundle(self._marker3DPool, b)
+                table.remove(list, i)
+            elseif cam then
+                -- posicion capturada 1 vez al spawn (juju L14994/L15000: anclada al punto de
+                -- impacto en world-space, no re-lee part.Position cada frame) -- solo la camara
+                -- moviendose actualiza la proyeccion. Fuera de camara -> oculto (juju L15040-
+                -- 15044, sin edge-clamp como los tracers de Task 3).
+                local vp, onScreen = cam:WorldToViewportPoint(e.pos)
+                if onScreen then
+                    self:_layoutMarkerCross(b, vp.X, vp.Y)
+                    for j = 1, 4 do b.lines[j].Visible = true; b.outlines[j].Visible = true end
+                else
+                    for j = 1, 4 do b.lines[j].Visible = false; b.outlines[j].Visible = false end
+                end
+            end
+        end
+    end
+
+    function Combat:_updateMarker2D(now)
+        local cam = self.Services.Workspace.CurrentCamera
+        local list = self._active2D
+        for i = #list, 1, -1 do
+            local e = list[i]
+            local b = e.bundle
+            if not e.fading and (now - e.spawnT) >= e.lifetime then
+                e.fading = true; e.fadeStart = now
+                for j = 1, 4 do
+                    GV.Tween(b.lines[j], { Transparency = 0 }, "quad", MARKER2D_FADE_DUR)
+                    GV.Tween(b.outlines[j], { Transparency = 0 }, "quad", MARKER2D_FADE_DUR)
+                end
+            end
+            if e.fading and (now - e.fadeStart) >= MARKER2D_FADE_DUR then
+                self:_releaseMarkerBundle(self._marker2DPool, b)
+                table.remove(list, i)
+            elseif cam then
+                -- centro de pantalla recalculado cada frame (juju L15123-15125), sin proyeccion
+                -- ni check on-screen -- siempre visible mientras exista.
+                local vp = cam.ViewportSize
+                self:_layoutMarkerCross(b, vp.X / 2, vp.Y / 2)
+                for j = 1, 4 do b.lines[j].Visible = true; b.outlines[j].Visible = true end
+            end
+        end
+    end
+
     -- ── triggers del provider ──
     function Combat:_onShot(origin, hitPos, isLocal)
         if not (self:_flag("Enabled", false) and self:_flag("Tracer", false)) then return end
@@ -234,19 +389,34 @@ return function(GV)
         else self:_spawnBeamTracer(origin, hitPos, now) end
     end
     function Combat:_onHit(plr, part, dmg, lethal)
-        -- Tasks 4/5/7/8 (Hitmarker, Damage Numbers, Hit Particles, Hit Chams) enganchan acá.
+        -- Task 4 (Hitmarker 3D+2D, este bloque). Tasks 5/7/8 (Damage Numbers, Hit Particles, Hit
+        -- Chams) enganchan acá tambien mas adelante. Gate SOLO del lado del spawn (Combat_Enabled
+        -- + el toggle de cada marker) -- ver nota en :_update sobre por que los updaters corren
+        -- incondicionalmente.
+        if not self:_flag("Enabled", false) then return end
+        local now = os.clock()
+        if self:_flag("Marker3D", false) then
+            local ok, pos = pcall(function() return part.Position end)
+            if ok and typeof(pos) == "Vector3" then self:_spawnMarker3D(pos, lethal, now) end
+        end
+        if self:_flag("Marker2D", false) then
+            self:_spawnMarker2D(lethal, now)
+        end
     end
 
-    -- GV.tweenStep + los loops de tracers corren SIEMPRE, sin gatear por Combat_Enabled -- igual
-    -- convencion que Aura:_update/ESP:_update (tweenStep incondicional). Si se gatearan, apagar
-    -- Combat_Enabled con un tracer a mitad de fade lo congelaria (Drawing/Beam visibles) para
-    -- siempre hasta re-activar o Unload -- el pool nunca liberaria el bundle ni el Beam se
-    -- destruiria. El toggle solo debe frenar SPAWNS nuevos (ya gateado en :_onShot); los tracers
-    -- ya disparados deben poder terminar su ciclo de vida (fade -> release/destroy) igual.
+    -- GV.tweenStep + TODOS los updaters (tracers + hitmarkers) corren SIEMPRE, sin gatear por
+    -- Combat_Enabled -- igual convencion que Aura:_update/ESP:_update (tweenStep incondicional).
+    -- Si se gatearan, apagar Combat_Enabled con un tracer/marker a mitad de fade lo congelaria
+    -- (Drawing/Beam visibles) para siempre hasta re-activar o Unload -- el pool nunca liberaria el
+    -- bundle ni el Beam se destruiria. El toggle solo debe frenar SPAWNS nuevos (ya gateado en
+    -- :_onShot/:_onHit); lo ya disparado debe poder terminar su ciclo de vida (fade ->
+    -- release/destroy) igual. Confirmado como review finding de Task 3, mandatorio para Task 4.
     function Combat:_update(now, dt)
         GV.tweenStep(now, dt)
         self:_updateLineTracers(now)
         self:_updateBeamTracers(now)
+        self:_updateMarker3D(now)
+        self:_updateMarker2D(now)
     end
 
     function Combat:Init()
@@ -289,8 +459,13 @@ return function(GV)
             pcall(function() e.att0:Destroy() end)
             pcall(function() e.att1:Destroy() end)
         end
+        -- hitmarkers (Task 4) NO necesitan destroy explicito -- sus Drawing "Line" (lineas +
+        -- outlines) ya se crearon via self:_draw y quedaron registradas en self.Drawings, cubiertas
+        -- por el loop de arriba. Solo hace falta vaciar los pools/listas de tracking.
         table.clear(self.Conns); table.clear(self.Drawings); table.clear(self._made)
         table.clear(self._linePool); table.clear(self._activeLine); table.clear(self._activeBeam)
+        table.clear(self._marker3DPool); table.clear(self._active3D)
+        table.clear(self._marker2DPool); table.clear(self._active2D)
     end
 
     GV.Combat = Combat
