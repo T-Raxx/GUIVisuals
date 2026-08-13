@@ -400,7 +400,12 @@ return function(GV)
     function Combat:_damageText()
         local t = table.remove(self._damagePool)
         if t then return t end
-        return self:_draw("Text", { Center = false, Outline = true })
+        -- ZIndex 5500 = mismo valor hardcodeado que juju (L14864/L14891) para que el numero
+        -- SIEMPRE dibuje encima -- en particular, encima de la cruz de Task 4 (ZIndex 99/100,
+        -- ver :_markerBundle) ya que Marker3D/2D y Damage suelen estar ON juntos y spawnean
+        -- desde el mismo :_onHit en la misma posicion de pantalla. Sin esto, Drawing "Text" cae
+        -- al ZIndex default (~0) y el numero renderiza DETRAS de la cruz. Review finding.
+        return self:_draw("Text", { Center = false, Outline = true, ZIndex = 5500 })
     end
     function Combat:_releaseDamageText(t)
         t.Visible = false
