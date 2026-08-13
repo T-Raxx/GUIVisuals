@@ -1153,7 +1153,16 @@ return function(GV)
     -- la variante outline) -- mismo criterio lazy que _beamTemplate/_particleLib arriba. Nunca se
     -- parentea (juju tampoco lo parentea, solo lo usa como fuente de :Clone()); se destruye en
     -- :Unload.
-    function Combat:_chamsOutlineTemplate()
+    --
+    -- NOTA (review finding, fix): el accessor se nombra DISTINTO al campo que cachea
+    -- (self._chamsOutlineTemplate) -- mismo criterio que _ensureRing()->self._ring y
+    -- _ensureParticleLib()->self._particleLib arriba. Nombrar el metodo IGUAL al campo
+    -- (`_chamsOutlineTemplate` -> `self._chamsOutlineTemplate`) rompia el lookup: con
+    -- Combat.__index=Combat, `self._chamsOutlineTemplate` sin valor propio en la instancia cae
+    -- al metodo del metatable (una funcion, truthy) -- el `if t then return t end` devolvia esa
+    -- funcion en vez de fabricar el SelectionBox, y `_buildChamsOutline` llamaba `:Clone()` sobre
+    -- una funcion -> error en TODO hit con Combat_ChamsType=="outline" (variante outline rota).
+    function Combat:_ensureChamsOutlineTemplate()
         local t = self._chamsOutlineTemplate
         if t then return t end
         t = Instance.new("SelectionBox")
@@ -1175,37 +1184,51 @@ return function(GV)
     -- recoloreo/creo -- las partes reales ocultas de la variante outline (Transparency=1,
     -- Anchored=true) simplemente no entran en `faders`, logrando el mismo resultado visual
     -- (nunca se tocan) sin necesitar el guard `~= 1` en el animador.
+    -- NOTA (review finding, fix): el recolor por-part esta pcall-wrapped (igual criterio
+    -- defensivo que :_cloneCharacter arriba) -- una propiedad que tira error en UNA parte
+    -- (mesh corrupta, propiedad no soportada por el executor, etc.) ya no aborta el :_spawnChams
+    -- completo (que perderia el clone entero silenciosamente, antes de llegar a
+    -- self._activeChams/model.Parent) -- esa parte simplemente no entra en `faders`/`growSizes`
+    -- (no se anima), el resto del clone sigue su curso normal.
     function Combat:_buildChamsSolid(model, material, color)
         local faders, growSizes = {}, {}
         for _, part in ipairs(model:GetChildren()) do
             if part:IsA("MeshPart") then
-                part.Material = material
-                part.Color = color
-                part.Transparency = CHAMS_TRANSPARENCY
-                part.TextureID = ""
-                part.CanCollide = false
-                part.Anchored = true
-                if part.Name == "Head" then
-                    local decal = part:FindFirstChildOfClass("Decal")
-                    if decal then decal:Destroy() end
+                local ok = pcall(function()
+                    part.Material = material
+                    part.Color = color
+                    part.Transparency = CHAMS_TRANSPARENCY
+                    part.TextureID = ""
+                    part.CanCollide = false
+                    part.Anchored = true
+                    if part.Name == "Head" then
+                        local decal = part:FindFirstChildOfClass("Decal")
+                        if decal then decal:Destroy() end
+                    end
+                end)
+                if ok then
+                    faders[#faders + 1] = part
+                    growSizes[part] = part.Size
                 end
-                faders[#faders + 1] = part
-                growSizes[part] = part.Size
             elseif part:IsA("Accessory") then
                 -- juju L15354-15365: si el Accessory no trae un MeshPart adentro (`hat` nil), se
                 -- deja INTACTO (ni recolor ni destroy) -- 1:1, no un caso omitido.
                 local hat = part:FindFirstChildOfClass("MeshPart")
                 if hat then
-                    hat.Material = material
-                    hat.Color = color
-                    hat.Transparency = CHAMS_TRANSPARENCY
-                    hat.TextureID = ""
-                    hat.CanCollide = false
-                    hat.Anchored = true
-                    hat.Parent = model
-                    faders[#faders + 1] = hat
-                    growSizes[hat] = hat.Size
-                    part:Destroy()
+                    local ok = pcall(function()
+                        hat.Material = material
+                        hat.Color = color
+                        hat.Transparency = CHAMS_TRANSPARENCY
+                        hat.TextureID = ""
+                        hat.CanCollide = false
+                        hat.Anchored = true
+                        hat.Parent = model
+                    end)
+                    if ok then
+                        faders[#faders + 1] = hat
+                        growSizes[hat] = hat.Size
+                    end
+                    part:Destroy() -- vacio (el hat ya salio, exito o no) -- siempre fuera del pcall, Destroy() no falla
                 end
             else
                 part:Destroy() -- Humanoid/HumanoidRootPart(no-mesh)/scripts/Shirt/Pants/BodyColors/etc.
@@ -1220,28 +1243,38 @@ return function(GV)
     -- do_hit_chams "solido" puede perder partes del cuerpo que no son MeshPart, la variante
     -- outline NO tiene ese problema para Head especificamente). Sin growSizes (SelectionBox no
     -- tiene Size) -- animType "new fade" fadea igual, solo sin el efecto de crecimiento.
+    -- NOTA (review finding, fix): mismo criterio pcall que :_buildChamsSolid arriba -- un fallo
+    -- a mitad de una parte (ej. Adornee rechazado) no aborta el :_spawnChams completo. El
+    -- `outline` sin trackear en `faders` (ok==false) igual se limpia solo: es descendiente de
+    -- `model`, y ese Model entero se destruye en :_updateChams/Unload independientemente de
+    -- `faders` -- no hay leak, solo pierde su animacion de fade individual.
     function Combat:_buildChamsOutline(model, color)
-        local template = self:_chamsOutlineTemplate()
+        local template = self:_ensureChamsOutlineTemplate()
         local faders = {}
         for _, part in ipairs(model:GetChildren()) do
             local isHead = part.Name == "Head"
             if isHead or part:IsA("MeshPart") then
                 local partName = part.Name
-                part.Transparency = 1
-                part.CanCollide = false
-                part.Anchored = true
-                local outline = template:Clone()
-                outline.Name = partName
-                outline.Color3 = color
-                outline.Transparency = CHAMS_TRANSPARENCY
-                outline.Adornee = part
-                outline.Parent = model
-                part.Name = "\0"
-                if isHead then
-                    local face = part:FindFirstChild("face")
-                    if face then face:Destroy() end
+                local outline
+                local ok = pcall(function()
+                    part.Transparency = 1
+                    part.CanCollide = false
+                    part.Anchored = true
+                    outline = template:Clone()
+                    outline.Name = partName
+                    outline.Color3 = color
+                    outline.Transparency = CHAMS_TRANSPARENCY
+                    outline.Adornee = part
+                    outline.Parent = model
+                    part.Name = "\0"
+                    if isHead then
+                        local face = part:FindFirstChild("face")
+                        if face then face:Destroy() end
+                    end
+                end)
+                if ok and outline then
+                    faders[#faders + 1] = outline
                 end
-                faders[#faders + 1] = outline
             else
                 part:Destroy()
             end
@@ -1458,7 +1491,7 @@ return function(GV)
         -- (mandato del brief: "no unbounded growth" cubre tambien el caso "modulo descargado a
         -- mitad de vuelo"). self._chamsOutlineTemplate sigue el mismo criterio que
         -- self._particleLib/self._ring: se destruye y se nillea para forzar una fabricacion
-        -- nueva en el proximo :_chamsOutlineTemplate.
+        -- nueva en el proximo :_ensureChamsOutlineTemplate.
         for _, e in ipairs(self._activeChams) do
             pcall(function() e.model:Destroy() end)
         end
