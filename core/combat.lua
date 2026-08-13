@@ -126,6 +126,12 @@ return function(GV)
     -- reconstruye el NumberSequence de Transparency cada frame desde un alpha 0->1 tweeneado
     -- via GV.Tween sobre una tabla Lua plana (GV.Tween/tweenStep solo interpolan numeros/
     -- Vector2/Vector3/Color3 -- un NumberSequence no es interpolable directo, se recompone acá).
+    --
+    -- NOTA: beam/att0/att1 NO se registran en self._made (a diferencia de otros modulos) -- son
+    -- transitorios y ya viven en self._activeBeam mientras estan vivos (bounded: se remueven de
+    -- ahi apenas :_updateBeamTracers los destruye). Si quedaran ademas en self._made, esa lista
+    -- creceria sin limite durante una sesion larga (nunca se poda entre disparos, solo en
+    -- Unload) -- self._activeBeam ya es el safety net de Unload para instancias de beam.
     function Combat:_spawnBeamTracer(origin, hitPos, now)
         local style = self:_flag("TracerStyle", "laser")
         local template = self:_beamTemplate(style)
@@ -139,7 +145,6 @@ return function(GV)
         local att0 = Instance.new("Attachment"); att0.CFrame = CFrame.new(origin); att0.Parent = terrain
         local att1 = Instance.new("Attachment"); att1.CFrame = CFrame.new(hitPos); att1.Parent = terrain
         beam.Attachment0 = att0; beam.Attachment1 = att1; beam.Parent = terrain
-        table.insert(self._made, att0); table.insert(self._made, att1); table.insert(self._made, beam)
         table.insert(self._activeBeam, {
             beam = beam, att0 = att0, att1 = att1, spawnT = now,
             lifetime = self:_flag("TracerLifetime", 0.8), fading = false, fadeAlpha = 0,
@@ -232,8 +237,13 @@ return function(GV)
         -- Tasks 4/5/7/8 (Hitmarker, Damage Numbers, Hit Particles, Hit Chams) enganchan acá.
     end
 
+    -- GV.tweenStep + los loops de tracers corren SIEMPRE, sin gatear por Combat_Enabled -- igual
+    -- convencion que Aura:_update/ESP:_update (tweenStep incondicional). Si se gatearan, apagar
+    -- Combat_Enabled con un tracer a mitad de fade lo congelaria (Drawing/Beam visibles) para
+    -- siempre hasta re-activar o Unload -- el pool nunca liberaria el bundle ni el Beam se
+    -- destruiria. El toggle solo debe frenar SPAWNS nuevos (ya gateado en :_onShot); los tracers
+    -- ya disparados deben poder terminar su ciclo de vida (fade -> release/destroy) igual.
     function Combat:_update(now, dt)
-        if not self:_flag("Enabled", false) then return end
         GV.tweenStep(now, dt)
         self:_updateLineTracers(now)
         self:_updateBeamTracers(now)
@@ -272,6 +282,13 @@ return function(GV)
         for _, c in ipairs(self.Conns) do pcall(function() c:Disconnect() end) end
         for _, o in ipairs(self.Drawings) do pcall(function() o.Visible = false; o:Remove() end) end
         for _, inst in ipairs(self._made) do pcall(function() inst:Destroy() end) end
+        -- beams no viven en self._made (ver nota en :_spawnBeamTracer) -- self._activeBeam es su
+        -- propio safety net: cualquier tracer todavia vivo/fading al momento de Unload se destruye acá.
+        for _, e in ipairs(self._activeBeam) do
+            pcall(function() e.beam:Destroy() end)
+            pcall(function() e.att0:Destroy() end)
+            pcall(function() e.att1:Destroy() end)
+        end
         table.clear(self.Conns); table.clear(self.Drawings); table.clear(self._made)
         table.clear(self._linePool); table.clear(self._activeLine); table.clear(self._activeBeam)
     end
