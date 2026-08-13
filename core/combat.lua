@@ -58,6 +58,421 @@ return function(GV)
         return b
     end
 
+    -- Task 7 -- Hit Particles: preset library (juju L14313-14820, do-block "hit particle").
+    -- ONE pooled anchored Part (juju L14316 hit_particle_part) holds ALL 10 preset emitters as
+    -- children, prebuilt once (juju builds them EAGER at module-load; acá se difiere a la primera
+    -- vez que se necesita -- ver :_ensureParticleLib mas abajo, mismo criterio lazy que
+    -- _beamTemplate/Aura:_template). do_hit_particle (juju L14770) solo mueve el Part y llama
+    -- :Emit(count) sobre los emitters del preset seleccionado -- no hace falta crear/destruir
+    -- Instances por hit, el pool entero vive fijo desde la 1ra creacion hasta :Unload.
+    --
+    -- Preset NO portado: "custom .rbxm" (juju menu L13347 use_custom_extensions + getcustomasset
+    -- L14800 -- carga un asset LOCAL del disco del usuario de juju). Esta abstraccion de proyecto
+    -- (provider/schema declarativo, sin filesystem picker en el menu) no expone un mecanismo
+    -- equivalente para que el usuario suba un .rbxm propio -- se omite, documentado acá y en el
+    -- schema (brief: "otherwise omit and document"). Los 10 presets built-in cubren el dropdown completo.
+    local function newParticle(parent, props)
+        local e = Instance.new("ParticleEmitter")
+        for k, v in pairs(props) do e[k] = v end
+        e.Enabled = false -- todos los presets de juju traen Enabled=false explicito (fire-and-forget via :Emit, no stream continuo)
+        e.Parent = parent
+        return e
+    end
+
+    -- transcripcion 1:1 de juju L14325-14765 (mismos valores/texturas/curvas por preset). Cada
+    -- entrada = { emitter = <ParticleEmitter>, count = <n de juju particle[2], el arg de :Emit()> }.
+    local function buildHitParticlePresets(part)
+        return {
+            sparks = {
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Acceleration = Vector3.new(0, -50, 0),
+                    Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.new(1, 0.999969, 0.999985)),
+                        ColorSequenceKeypoint.new(0.25, Color3.new(0.333333, 1, 0)),
+                        ColorSequenceKeypoint.new(1, Color3.new(0.333333, 1, 0.498039)),
+                    }),
+                    Lifetime = NumberRange.new(0.5, 1),
+                    LightEmission = 1,
+                    Orientation = Enum.ParticleOrientation.VelocityParallel,
+                    Rate = 0,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.6, 0), NumberSequenceKeypoint.new(0.5, 0.6, 0), NumberSequenceKeypoint.new(1, 0, 0),
+                    }),
+                    Speed = NumberRange.new(15, 15),
+                    SpreadAngle = Vector2.new(50, -50),
+                    Texture = "http://www.roblox.com/asset/?id=18540695516",
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0, 0), NumberSequenceKeypoint.new(0.5, 0, 0), NumberSequenceKeypoint.new(1, 1, 0),
+                    }),
+                }), count = 30 },
+            },
+            bubble = {
+                { emitter = newParticle(part, {
+                    FlipbookMode = Enum.ParticleFlipbookMode.OneShot,
+                    Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(85, 255, 255)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(85, 255, 255)),
+                    }),
+                    LockedToPart = true,
+                    Rate = 1.5,
+                    Rotation = NumberRange.new(-5, 5),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.464, 0.768750011920929), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    Texture = "rbxassetid://17086075673",
+                    Lifetime = NumberRange.new(0.450000001192092896, 0.450000001192092896),
+                    LightEmission = 1,
+                    Brightness = 5,
+                    Speed = NumberRange.new(0, 0),
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.10000000149011612), NumberSequenceKeypoint.new(1, 6),
+                    }),
+                }), count = 1 },
+            },
+            orbs = {
+                { emitter = newParticle(part, {
+                    FlipbookMode = Enum.ParticleFlipbookMode.OneShot,
+                    RotSpeed = NumberRange.new(-10, 10),
+                    FlipbookFramerate = NumberRange.new(40, 40),
+                    Drag = 1,
+                    Rate = 1,
+                    Texture = "rbxassetid://15011464541",
+                    Rotation = NumberRange.new(-1000, 1000),
+                    Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }),
+                    SpreadAngle = Vector2.new(-1000, 1000),
+                    Lifetime = NumberRange.new(0.44999998807907104, 0.44999998807907104),
+                    LightEmission = 1,
+                    Brightness = 10,
+                    FlipbookLayout = Enum.ParticleFlipbookLayout.Grid8x8,
+                    Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 5.5), NumberSequenceKeypoint.new(1, 5.5) }),
+                }), count = 3 },
+            },
+            air = {
+                { emitter = newParticle(part, {
+                    FlipbookMode = Enum.ParticleFlipbookMode.PingPong,
+                    VelocityInheritance = 0.15000000596046448,
+                    Texture = "rbxassetid://10536350143",
+                    FlipbookFramerate = NumberRange.new(30, 30),
+                    Drag = 4.5,
+                    Rate = 1,
+                    Speed = NumberRange.new(0, 0),
+                    LightInfluence = 1,
+                    Acceleration = Vector3.new(1, 0, 1),
+                    LockedToPart = true,
+                    Lifetime = NumberRange.new(1, 1),
+                    LightEmission = 1,
+                    Brightness = 10,
+                    FlipbookLayout = Enum.ParticleFlipbookLayout.Grid8x8,
+                    Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 3), NumberSequenceKeypoint.new(1, 3) }),
+                }), count = 1 },
+            },
+            blood = {
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.5, 0.75),
+                    SpreadAngle = Vector2.new(90, 90),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.125, 0.5), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    Color = ColorSequence.new(Color3.fromRGB(130, 0, 0)),
+                    Speed = NumberRange.new(5, 10),
+                    Size = NumberSequence.new(0.5, 2),
+                    Acceleration = Vector3.new(0, -20, 0),
+                    RotSpeed = NumberRange.new(-90, 90),
+                    Rate = 0,
+                    Texture = "rbxassetid://241576804",
+                    Rotation = NumberRange.new(-360, 360),
+                }), count = 25 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.25, 0.5),
+                    SpreadAngle = Vector2.new(360, 360),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.25, 0), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    Color = ColorSequence.new(Color3.fromRGB(100, 0, 0)),
+                    Speed = NumberRange.new(15, 25),
+                    Size = NumberSequence.new(0.125, 0.6874996),
+                    Acceleration = Vector3.new(0, -75, 0),
+                    Rate = 0,
+                    Texture = "rbxassetid://4509687978",
+                    Orientation = Enum.ParticleOrientation.VelocityParallel,
+                }), count = 15 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.75, 0.75),
+                    FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5037407, 0), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    Color = ColorSequence.new(Color3.fromRGB(130, 0, 0)),
+                    Speed = NumberRange.new(0.001, 0.001),
+                    ZOffset = 4,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(0.376, 2.0625), NumberSequenceKeypoint.new(1, 2.6875),
+                    }),
+                    Rate = 0,
+                    Texture = "rbxassetid://16664856199",
+                    FlipbookMode = Enum.ParticleFlipbookMode.OneShot,
+                    Rotation = NumberRange.new(-360, 360),
+                }), count = 5 },
+            },
+            light = {
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    LightInfluence = 1,
+                    Lifetime = NumberRange.new(1, 1),
+                    LockedToPart = true,
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2066, 0), NumberSequenceKeypoint.new(0.4947, 0),
+                        NumberSequenceKeypoint.new(0.7996, 0), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 1,
+                    Speed = NumberRange.new(0, 0),
+                    ZOffset = 4,
+                    Size = NumberSequence.new(7.5, 7.5),
+                    RotSpeed = NumberRange.new(100, 100),
+                    Rate = 0,
+                    Texture = "rbxassetid://271370648",
+                }), count = 1 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    LightInfluence = 1,
+                    Lifetime = NumberRange.new(1, 1),
+                    LockedToPart = true,
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4947, 0), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 1,
+                    Speed = NumberRange.new(0, 0),
+                    ZOffset = 5,
+                    Size = NumberSequence.new(7.5, 7.5),
+                    Rate = 0,
+                    Texture = "rbxassetid://13275495915",
+                }), count = 2 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    LightInfluence = 1,
+                    Lifetime = NumberRange.new(1, 1),
+                    LockedToPart = true,
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.504, 0.49375), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 1,
+                    Speed = NumberRange.new(0, 0),
+                    ZOffset = 5,
+                    Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 7.4375) }),
+                    Rate = 0,
+                    Texture = "rbxassetid://15267994078",
+                    Rotation = NumberRange.new(-360, 360),
+                }), count = 3 },
+            },
+            lightning = {
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    FlipbookFramerate = NumberRange.new(17, 17),
+                    Lifetime = NumberRange.new(0.1, 1),
+                    FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
+                    LockedToPart = true,
+                    Speed = NumberRange.new(0.01, 0.01),
+                    Brightness = 15,
+                    ZOffset = 3,
+                    Size = NumberSequence.new(5, 5),
+                    Rate = 0,
+                    Texture = "rbxassetid://14582813693",
+                    Orientation = Enum.ParticleOrientation.VelocityPerpendicular,
+                    Rotation = NumberRange.new(-360, 360),
+                }), count = 5 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.4, 0.4),
+                    SpreadAngle = Vector2.new(360, 360),
+                    Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }),
+                    LightEmission = 1,
+                    Drag = 15,
+                    Speed = NumberRange.new(0.0099, 0.0099),
+                    Brightness = 5,
+                    ZOffset = 4,
+                    Size = NumberSequence.new(5, 5),
+                    Rate = 0,
+                    Texture = "rbxassetid://13305806509",
+                    FlipbookMode = Enum.ParticleFlipbookMode.OneShot,
+                }), count = 2 },
+            },
+            blackflash = {
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    LightInfluence = 0.2,
+                    Lifetime = NumberRange.new(0.1, 0.25),
+                    SpreadAngle = Vector2.new(360, 360),
+                    LockedToPart = true,
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.0375, 0.291), NumberSequenceKeypoint.new(0.131, 0.602),
+                        NumberSequenceKeypoint.new(0.259, 0.788), NumberSequenceKeypoint.new(0.403, 0.906), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 1,
+                    Color = ColorSequence.new(Color3.fromRGB(255, 17, 17)),
+                    Speed = NumberRange.new(0.0135, 0.0135),
+                    Brightness = 10,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.0645, 5.37), NumberSequenceKeypoint.new(0.236, 11.31),
+                        NumberSequenceKeypoint.new(0.586, 15.7), NumberSequenceKeypoint.new(1, 18.56),
+                    }),
+                    RotSpeed = NumberRange.new(-20, 20),
+                    Rate = 0,
+                    Texture = "rbxassetid://10149702982",
+                    Orientation = Enum.ParticleOrientation.VelocityPerpendicular,
+                    Rotation = NumberRange.new(-360, 360),
+                }), count = 3 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.07, 0.2),
+                    SpreadAngle = Vector2.new(-360, 360),
+                    LockedToPart = true,
+                    LightEmission = 1,
+                    Color = ColorSequence.new(Color3.fromRGB(255, 17, 17)),
+                    Speed = NumberRange.new(0.0197, 0.0197),
+                    Brightness = 15,
+                    ZOffset = 3.96,
+                    Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 25.55), NumberSequenceKeypoint.new(1, 0) }),
+                    Rate = 0,
+                    Texture = "rbxassetid://15446757636",
+                    Orientation = Enum.ParticleOrientation.VelocityParallel,
+                    Rotation = NumberRange.new(-360, 360),
+                }), count = 3 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.6, 1.3),
+                    SpreadAngle = Vector2.new(180, 180),
+                    LockedToPart = true,
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(0.457, 0.9625), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 1,
+                    Drag = 10,
+                    Speed = NumberRange.new(72.6, 290.5),
+                    Brightness = 0.75,
+                    ZOffset = 3.46,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.58), NumberSequenceKeypoint.new(0.5, 16.25), NumberSequenceKeypoint.new(1, 20.34),
+                    }),
+                    Rate = 0,
+                    Texture = "rbxassetid://15883763954",
+                    Orientation = Enum.ParticleOrientation.VelocityParallel,
+                    Rotation = NumberRange.new(-360, 360),
+                }), count = 3 },
+            },
+            gravity = {
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.6, 0.6),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.578, 0.7375), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                    LightEmission = 1,
+                    Color = ColorSequence.new(Color3.fromRGB(114, 44, 255)),
+                    Speed = NumberRange.new(0.0629, 0.0629),
+                    Brightness = 4,
+                    Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 35.77) }),
+                    RotSpeed = NumberRange.new(500, 800),
+                    Rate = 0,
+                    Texture = "rbxassetid://8030746658",
+                    Orientation = Enum.ParticleOrientation.VelocityPerpendicular,
+                    Rotation = NumberRange.new(-360, 360),
+                }), count = 3 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.85, 1),
+                    SpreadAngle = Vector2.new(-30, 30),
+                    LightEmission = 1,
+                    Color = ColorSequence.new(Color3.fromRGB(81, 62, 189)),
+                    Speed = NumberRange.new(5, 10),
+                    Brightness = 4,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.167, 0.875), NumberSequenceKeypoint.new(1, 0),
+                    }),
+                    Rate = 0,
+                    Texture = "rbxassetid://8030760338",
+                }), count = 35 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.2, 0.4),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.26, 0), NumberSequenceKeypoint.new(1, 0),
+                    }),
+                    LightEmission = 1,
+                    Color = ColorSequence.new(Color3.fromRGB(114, 44, 255)),
+                    Drag = 1,
+                    Speed = NumberRange.new(5, 10),
+                    Brightness = 3,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.11, 4.0975), NumberSequenceKeypoint.new(1, 0),
+                    }),
+                    Rate = 0,
+                    Texture = "rbxassetid://8801300936",
+                    Orientation = Enum.ParticleOrientation.FacingCameraWorldUp,
+                }), count = 20 },
+            },
+            meteor = {
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.1, 0.3),
+                    FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
+                    SpreadAngle = Vector2.new(40, 40),
+                    LightEmission = 0.1,
+                    Color = ColorSequence.new(Color3.fromRGB(72, 26, 255)),
+                    Drag = 9,
+                    Speed = NumberRange.new(100, 200),
+                    Brightness = 4.57,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 14.17), NumberSequenceKeypoint.new(0.374, 16.19), NumberSequenceKeypoint.new(1, 10.31),
+                    }),
+                    Rate = 0,
+                    Texture = "http://www.roblox.com/asset/?id=13136714025",
+                    FlipbookMode = Enum.ParticleFlipbookMode.OneShot,
+                    Rotation = NumberRange.new(0, 360),
+                }), count = 30 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.15, 0.25),
+                    SpreadAngle = Vector2.new(30, 30),
+                    LockedToPart = true,
+                    LightEmission = 0.6,
+                    Color = ColorSequence.new(Color3.fromRGB(69, 44, 255)),
+                    Drag = 26,
+                    Speed = NumberRange.new(0.13, 0.13),
+                    Brightness = 6.885,
+                    ZOffset = 3,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.265, 1.16), NumberSequenceKeypoint.new(0.48, 7.56),
+                        NumberSequenceKeypoint.new(0.72, 1.4), NumberSequenceKeypoint.new(1, 0),
+                    }),
+                    Rate = 0,
+                    Texture = "rbxassetid://16722791958",
+                    Rotation = NumberRange.new(150, 150),
+                }), count = 50 },
+                { emitter = newParticle(part, {
+                    Name = "\0",
+                    Lifetime = NumberRange.new(0.2, 0.4),
+                    SpreadAngle = Vector2.new(50, 50),
+                    Color = ColorSequence.new(Color3.fromRGB(84, 41, 255)),
+                    Drag = 8,
+                    Speed = NumberRange.new(141.44, 183.87),
+                    Brightness = 12,
+                    Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.259, 1.77), NumberSequenceKeypoint.new(1, 0),
+                    }),
+                    Acceleration = Vector3.new(0, -282.88, 0),
+                    RotSpeed = NumberRange.new(-30, 30),
+                    Rate = 0,
+                    Texture = "rbxassetid://11995504618",
+                    Orientation = Enum.ParticleOrientation.VelocityParallel,
+                }), count = 40 },
+            },
+        }
+    end
+
     function Combat.new(opts)
         opts = opts or {}
         local svc = opts.services or {
@@ -618,6 +1033,58 @@ return function(GV)
         end
     end
 
+    ------------------------------------------------------------------------------------------
+    -- Task 7 -- Hit Particles: pool lazy-create (mismo criterio que :_ensureRing arriba -- 1 sola
+    -- fabricacion, sobrevive toggles on/off, se destruye solo en :Unload). El Part se registra en
+    -- self._made (a diferencia de self._ring/self._marker*Pool, que son Drawings ya cubiertas por
+    -- self.Drawings) -- es una Instance real (Instance.new("Part")), Destroy() en cascada se lleva
+    -- consigo los 17 ParticleEmitter hijos (10 presets, 1-3 emitters c/u) sin loop adicional.
+    ------------------------------------------------------------------------------------------
+    function Combat:_ensureParticleLib()
+        local lib = self._particleLib
+        if lib then return lib end
+        local part = Instance.new("Part")
+        part.Name = "\0"
+        part.Anchored = true
+        part.CanCollide = false
+        part.CanQuery = false
+        part.CanTouch = false
+        part.Massless = true
+        part.CastShadow = false
+        part.Size = Vector3.new(0.01, 0.01, 0.01)
+        part.Parent = self.Services.Workspace
+        table.insert(self._made, part)
+        lib = { part = part, presets = buildHitParticlePresets(part) }
+        self._particleLib = lib
+        return lib
+    end
+
+    -- juju do_hit_particle (L14770-14780): mueve el Part al CFrame de la parte golpeada (no solo
+    -- Position -- varios emitters usan EmissionDirection/orientacion relativa al Part, ej. sparks
+    -- Orientation=VelocityParallel + SpreadAngle(50,-50)), recolorea TODOS los emitters del preset
+    -- seleccionado (color/lethal via provider.onHit lethal bool, mismo patron que Marker/Damage),
+    -- fuerza ZOffset a 0/1 segun el toggle "behind walls" -- ESTO SOBREESCRIBE el ZOffset baked-in
+    -- de cada emitter (ej. blood 3er emitter trae ZOffset=4, light trae 4/5, blackflash 3/3.96/3.46,
+    -- meteor trae 3) -- comportamiento 1:1 de juju, no un bug de este port: cada hit fuerza 0 (o 1
+    -- con behind_walls ON) en TODOS los emitters del preset, pisando su valor base. Y llama
+    -- :Emit(count) por emitter -- fire-and-forget, sin ciclo de vida que trackear en :_update
+    -- (brief: "particle emission is :Emit-based/self-expiring").
+    function Combat:_fireParticle(cf, lethal, now)
+        local lib = self:_ensureParticleLib()
+        local presetName = self:_flag("ParticlePreset", "sparks")
+        local preset = lib.presets[presetName] or lib.presets.sparks
+        if not preset then return end
+        local color = ColorSequence.new(lethal and GV.Color.fade(self.Flags, "Combat_ParticleLethal", now)
+            or GV.Color.fade(self.Flags, "Combat_ParticleColor", now))
+        local zOffset = self:_flag("ParticleBehindWalls", false) and 1 or 0
+        lib.part.CFrame = cf
+        for _, p in ipairs(preset) do
+            p.emitter.Color = color
+            p.emitter.ZOffset = zOffset
+            p.emitter:Emit(p.count)
+        end
+    end
+
     -- ── triggers del provider ──
     function Combat:_onShot(origin, hitPos, isLocal)
         if not (self:_flag("Enabled", false) and self:_flag("Tracer", false)) then return end
@@ -644,6 +1111,12 @@ return function(GV)
         if self:_flag("Damage", false) then
             local ok, pos = pcall(function() return part.Position end)
             if ok and typeof(pos) == "Vector3" then self:_spawnDamageNumber(pos, dmg, lethal, now) end
+        end
+        -- Task 7 (Hit Particles, este bloque). CFrame completo (no solo Position) -- ver nota en
+        -- :_fireParticle sobre por que la orientacion del Part importa para varios emitters.
+        if self:_flag("Particle", false) then
+            local ok, cf = pcall(function() return part.CFrame end)
+            if ok and typeof(cf) == "CFrame" then self:_fireParticle(cf, lethal, now) end
         end
     end
 
@@ -716,12 +1189,18 @@ return function(GV)
         -- abajo, que vacian pero conservan la MISMA tabla) fuerza a :_ensureRing a fabricar un
         -- pool de 32 Drawings NUEVO en el proximo Init -- las 32 lineas viejas ya fueron
         -- :Remove()-idas arriba, retener esa referencia las dejaria apuntando a Drawings muertas.
+        -- self._particleLib (Task 7) sigue el mismo criterio que self._ring: el Part (y sus 17
+        -- ParticleEmitter hijos, destruidos en cascada) ya fue :Destroy()-ido arriba via el loop de
+        -- self._made (esta registrado ahi, ver :_ensureParticleLib) -- self._particleLib = nil solo
+        -- fuerza una fabricacion NUEVA (Part + presets) en el proximo :_ensureParticleLib, evitando
+        -- retener una referencia a un Part ya destruido.
         table.clear(self.Conns); table.clear(self.Drawings); table.clear(self._made)
         table.clear(self._linePool); table.clear(self._activeLine); table.clear(self._activeBeam)
         table.clear(self._marker3DPool); table.clear(self._active3D)
         table.clear(self._marker2DPool); table.clear(self._active2D)
         table.clear(self._damagePool); table.clear(self._activeDamage)
         self._ring = nil
+        self._particleLib = nil
     end
 
     GV.Combat = Combat

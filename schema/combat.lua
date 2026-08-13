@@ -83,6 +83,30 @@ return function(GV)
     add{ tab = TAB, group = "Target Ring", side = "Left", flag = "Combat_RingSpeed", type = "slider",
         text = "Spin speed", min = 0.5, max = 8, default = 4, decimals = 1, dependsOn = "Combat_Ring" }
 
+    -- Task 7 -- Hit Particles (juju menu L13342-13347: "hit_particle"). 10 emitter presets
+    -- prebuilt sobre 1 Part pooled (core/combat.lua Combat:_ensureParticleLib), ported literalmente
+    -- L14325-14765 -- ver esa funcion para el detalle de cada preset. "custom .rbxm" (juju
+    -- use_custom_extensions L13347 + getcustomasset L14800, carga un asset local del disco del
+    -- usuario de juju) NO se porta -- este proyecto (schema declarativo + provider, sin filesystem
+    -- picker) no expone un mecanismo equivalente de subida de asset propio; se omite (brief:
+    -- "otherwise omit and document"). El dropdown solo trae los 10 presets built-in. juju tiene
+    -- default_color = default_lethal_color = rgb(133,220,255) transparencia 0.2 para AMBOS
+    -- colorpickers (no es un default distinto para lethal como en Marker/Damage) -- se porta ese
+    -- mismo valor 1:1 en los 2 (la transparencia de juju no tiene equivalente en el colorpicker CF
+    -- de este proyecto, mismo criterio ya aplicado en Marker/Damage/Ring arriba -- GV.Color.fade
+    -- solo devuelve Color3, no transparency).
+    add{ tab = TAB, group = "Hit Particles", side = "Left", flag = "Combat_Particle", type = "toggle",
+        text = "Hit particles", default = false, dependsOn = "Combat_Enabled" }
+    add{ tab = TAB, group = "Hit Particles", side = "Left", flag = "Combat_ParticlePreset", type = "dropdown",
+        text = "Preset", values = { "bubble", "sparks", "orbs", "air", "blood", "light", "lightning", "blackflash", "gravity", "meteor" },
+        default = "sparks", dependsOn = "Combat_Particle" }
+    add{ tab = TAB, group = "Hit Particles", side = "Left", flag = "Combat_ParticleBehindWalls", type = "toggle",
+        text = "Behind walls", default = false, dependsOn = "Combat_Particle" }
+    GV.pushCF(S, { toggle = "Combat_Particle", base = "Combat_ParticleColor", text = "Particle color",
+        tab = TAB, group = "Hit Particles", side = "Left", default = C(133, 220, 255) })
+    GV.pushCF(S, { toggle = "Combat_Particle", base = "Combat_ParticleLethal", text = "Particle lethal color",
+        tab = TAB, group = "Hit Particles", side = "Left", default = C(133, 220, 255) })
+
     GV.Modules = GV.Modules or {}
     GV.Modules.combat = GV.Modules.combat or {}
     GV.Modules.combat.schema = S
