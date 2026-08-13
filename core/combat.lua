@@ -18,6 +18,24 @@
 -- numerico de damage redondeado -- LiP no tiene el string de "razon del resolver" que juju
 -- concatena via damage_number_show_ragebot_data; ese toggle/flag NO se porta (brief, nota de
 -- adaptacion: no inventar un string equivalente).
+--
+-- Task 8 (Hit Chams, este bloque -- ULTIMA feature del combat-vfx-port): port de jujudotlol.lua
+-- L15205-15211 (menu) + L15319-15473 (do_hit_chams/do_hit_chams_outline + los 3 animadores de
+-- destroy). Disparo: mismo provider.onHit que Task 4/5/7, pero solo consume el arg `player` (el
+-- Player golpeado) -- clona su `.Character` completo, recolorea, y lo deja fadeando in-place.
+-- Adaptaciones vs juju (ver brief "adapt, do not invent"):
+--   1) juju resuelve `destroy_hit_chams` (la variante de animacion) como un upvalue MUTABLE leido
+--      recien cuando el `delay(hit_chams_lifetime, ...)` dispara -- si el usuario cambia el
+--      dropdown "animation" MIENTRAS un chams esta en vuelo, ese chams termina usando la variante
+--      NUEVA, no la que estaba seleccionada al momento del hit. Acá se lee Combat_ChamsAnimation
+--      UNA sola vez al spawn (mismo criterio que TracerType/DamageFont/ParticlePreset en Tasks
+--      3/5/7 -- todos los flags de "estilo" de este archivo se congelan al spawn).
+--   2) juju usa closures push-into-heartbeat (`heartbeat[#heartbeat+1]=tween_function` +
+--      `delay(...)`) para el ciclo fade -> destroy. Acá se adapta al patron per-frame ya
+--      establecido en este archivo (e.fading/e.fadeStart, ver Tasks 3-5) -- gatea SIEMPRE desde
+--      Combat:_update (ver nota grande sobre :_update mas abajo), evitando el equivalente de
+--      "timer huerfano" que tendria un closure de juju cuyo `delay` nunca dispara si el modulo
+--      se descarga a mitad de vuelo (Unload cubre esto explicitamente, ver mandato del brief).
 return function(GV)
     local Combat = {}
     Combat.__index = Combat
@@ -34,6 +52,24 @@ return function(GV)
     -- diferencia de los fades de arriba, la ventana de fade-out del damage number NO es una
     -- constante fija -- es proporcional al lifetime de cada instancia (ver :_spawnDamageNumber).
     local DAMAGE_RISE_OFFSET = Vector3.new(0, 1.5, 0)
+
+    -- Task 8 -- Hit Chams: ventanas de fade fijas (constantes en juju, no expuestas en el menu --
+    -- mismo criterio que LINE_FADE_DUR/MARKER3D_FADE_DUR/MARKER2D_FADE_DUR arriba).
+    -- destroy_hit_chams_fade (juju L15233-15261): la curva de transparencia Y la ventana total
+    -- hasta destroy coinciden, ambas 0.25s. destroy_hit_chams_new_fade (juju L15265-15315): la
+    -- curva (transparencia + grow de Size) dura 0.15s, pero la ventana total hasta destroy sigue
+    -- siendo 0.25s (juju L15306 delay(0.25,...) en AMBAS variantes) -- tras completar la curva a
+    -- los 0.15s, el modelo queda congelado en el estado final (transparency=1, size maxima) el
+    -- resto de la ventana hasta el destroy real a los 0.25s. animType=="none" destruye de
+    -- inmediato al vencer el lifetime, sin ventana ni curva.
+    local CHAMS_FADE_CURVE_DUR = 0.25    -- animType == "fade"
+    local CHAMS_NEWFADE_CURVE_DUR = 0.15 -- animType == "new fade"
+    local CHAMS_TOTAL_FADE_DUR = 0.25    -- ventana total hasta destroy (ambas variantes con curva)
+    local CHAMS_GROW_SIZE = Vector3.new(1, 1, 1) -- juju L15263 `size = vector3_new(1,1,1)`
+    -- transparency base del clon (juju menu L15211 default_transparency=0.8 -- el colorpicker CF
+    -- de este proyecto no tiene componente de transparencia, ver nota identica en schema/
+    -- combat.lua Hit Chams / Hit Particles -- se porta como constante fija, no como fila de menu).
+    local CHAMS_TRANSPARENCY = 0.8
 
     -- beams bank (juju L13364-13396, port 1:1 de props/valores por estilo). Se instancian LAZY
     -- (1 vez por estilo, cacheadas) y se clonan por disparo -- igual patron que Aura:_template.
@@ -498,6 +534,12 @@ return function(GV)
             -- (mismo criterio lazy que _beamTemplates/_lineBundle arriba) como
             -- { lines = {32 Drawing "Line"}, radius = {r=...}, oldRadius = ..., bounce = nil|{...} }
             -- -- pool FIJO (no pool-de-prestamo), ver nota grande sobre :_updateRing.
+            -- Task 8: lista de clones de char (hit chams) activos + referencia al ULTIMO clone
+            -- spawneado (juju `last_model`, ver Combat:_spawnChams) para la logica only_last_hit --
+            -- a diferencia de los pools de Tasks 3-5, no hay pool-de-prestamo acá (cada hit clona
+            -- un Model nuevo, se destruye al terminar su fade -- mismo patron no-pooled que
+            -- self._particleLib del Task 7, pero POR-HIT en vez de 1-sola-vez).
+            _activeChams = {}, _lastChams = nil,
         }, Combat)
     end
 
@@ -1085,6 +1127,215 @@ return function(GV)
         end
     end
 
+    ------------------------------------------------------------------------------------------
+    -- Task 8 -- Hit Chams: clone helper (ver header del archivo para las 2 adaptaciones grandes
+    -- ya documentadas -- animType congelado al spawn, animador per-frame en vez de heartbeat-
+    -- push). Patron de clone YA establecido en este proyecto (ui/preview.lua L87-88,
+    -- dist/Visuals.*.lua): guarda el Archivable previo y lo RESTAURA tras el clone -- a
+    -- diferencia de juju (`character["Archivable"]=true -> clone -> character["Archivable"]=
+    -- false`, que deja el Character ajeno permanentemente Archivable=false incluso si estaba
+    -- true antes), esto no muta el estado del Character de otro jugador mas alla del instante
+    -- del clone.
+    ------------------------------------------------------------------------------------------
+    function Combat:_cloneCharacter(character)
+        local m
+        local ok = pcall(function()
+            local prev = character.Archivable
+            character.Archivable = true
+            m = character:Clone()
+            character.Archivable = prev
+        end)
+        if not (ok and m) then return nil end
+        return m
+    end
+
+    -- template SelectionBox lazy-cached (juju L15219-15225 `hit_chams_part`, clonado por-part en
+    -- la variante outline) -- mismo criterio lazy que _beamTemplate/_particleLib arriba. Nunca se
+    -- parentea (juju tampoco lo parentea, solo lo usa como fuente de :Clone()); se destruye en
+    -- :Unload.
+    function Combat:_chamsOutlineTemplate()
+        local t = self._chamsOutlineTemplate
+        if t then return t end
+        t = Instance.new("SelectionBox")
+        t.LineThickness = 0.01
+        t.Name = "\0"
+        self._chamsOutlineTemplate = t
+        return t
+    end
+
+    -- juju do_hit_chams (L15319-15376), variantes forcefield/neon -- comparten esta logica de
+    -- recolor, difieren solo en `material`. Devuelve `faders` (las Instances que el animador de
+    -- :_updateChams debe fade/grow) + `growSizes` ([Instance]=Vector3, snapshot de Size ANTES de
+    -- crecer, solo para MeshPart -- usado por el animador "new fade").
+    --
+    -- Adaptacion vs juju (ver brief "adapt, do not invent" + mandato de :_update sobre no-leak):
+    -- juju itera TODOS los hijos del modelo en el animador (`get_children(model)`) y filtra ahi
+    -- (`child_transparency ~= 1` salta las partes reales ocultas de la variante outline). Acá se
+    -- arma explicitamente la lista `faders` con SOLO las Instances que este build efectivamente
+    -- recoloreo/creo -- las partes reales ocultas de la variante outline (Transparency=1,
+    -- Anchored=true) simplemente no entran en `faders`, logrando el mismo resultado visual
+    -- (nunca se tocan) sin necesitar el guard `~= 1` en el animador.
+    function Combat:_buildChamsSolid(model, material, color)
+        local faders, growSizes = {}, {}
+        for _, part in ipairs(model:GetChildren()) do
+            if part:IsA("MeshPart") then
+                part.Material = material
+                part.Color = color
+                part.Transparency = CHAMS_TRANSPARENCY
+                part.TextureID = ""
+                part.CanCollide = false
+                part.Anchored = true
+                if part.Name == "Head" then
+                    local decal = part:FindFirstChildOfClass("Decal")
+                    if decal then decal:Destroy() end
+                end
+                faders[#faders + 1] = part
+                growSizes[part] = part.Size
+            elseif part:IsA("Accessory") then
+                -- juju L15354-15365: si el Accessory no trae un MeshPart adentro (`hat` nil), se
+                -- deja INTACTO (ni recolor ni destroy) -- 1:1, no un caso omitido.
+                local hat = part:FindFirstChildOfClass("MeshPart")
+                if hat then
+                    hat.Material = material
+                    hat.Color = color
+                    hat.Transparency = CHAMS_TRANSPARENCY
+                    hat.TextureID = ""
+                    hat.CanCollide = false
+                    hat.Anchored = true
+                    hat.Parent = model
+                    faders[#faders + 1] = hat
+                    growSizes[hat] = hat.Size
+                    part:Destroy()
+                end
+            else
+                part:Destroy() -- Humanoid/HumanoidRootPart(no-mesh)/scripts/Shirt/Pants/BodyColors/etc.
+            end
+        end
+        return faders, growSizes
+    end
+
+    -- juju do_hit_chams_outline (L15378-15425): oculta la parte real (Transparency=1) y clona un
+    -- SelectionBox adornado sobre ella, por cada MeshPart O la parte literal "Head" (cubre el
+    -- caso R6 donde Head es un Part comun, no MeshPart -- ver nota grande arriba sobre por que
+    -- do_hit_chams "solido" puede perder partes del cuerpo que no son MeshPart, la variante
+    -- outline NO tiene ese problema para Head especificamente). Sin growSizes (SelectionBox no
+    -- tiene Size) -- animType "new fade" fadea igual, solo sin el efecto de crecimiento.
+    function Combat:_buildChamsOutline(model, color)
+        local template = self:_chamsOutlineTemplate()
+        local faders = {}
+        for _, part in ipairs(model:GetChildren()) do
+            local isHead = part.Name == "Head"
+            if isHead or part:IsA("MeshPart") then
+                local partName = part.Name
+                part.Transparency = 1
+                part.CanCollide = false
+                part.Anchored = true
+                local outline = template:Clone()
+                outline.Name = partName
+                outline.Color3 = color
+                outline.Transparency = CHAMS_TRANSPARENCY
+                outline.Adornee = part
+                outline.Parent = model
+                part.Name = "\0"
+                if isHead then
+                    local face = part:FindFirstChild("face")
+                    if face then face:Destroy() end
+                end
+                faders[#faders + 1] = outline
+            else
+                part:Destroy()
+            end
+        end
+        return faders
+    end
+
+    -- juju L15319-15325 / L15378-15384: el destroy-si-only-last-hit pasa ANTES del chequeo de
+    -- Character -- si el jugador golpeado no tiene char (edge case), el chams anterior igual se
+    -- destruye y no se spawnea uno nuevo (1:1, mismo orden que juju).
+    function Combat:_spawnChams(player, now)
+        local ok, character = pcall(function() return player and player.Character end)
+        character = (ok and character) or nil
+
+        if self:_flag("ChamsOnlyLast", false) and self._lastChams then
+            local prev = self._lastChams
+            pcall(function() prev.model:Destroy() end)
+            for i = #self._activeChams, 1, -1 do
+                if self._activeChams[i] == prev then table.remove(self._activeChams, i); break end
+            end
+            self._lastChams = nil
+        end
+
+        if not character then return end
+
+        local kind = self:_flag("ChamsType", "neon")
+        -- animType leido UNA vez acá (congelado al spawn) -- ver header del archivo, adaptacion 1.
+        local animType = self:_flag("ChamsAnimation", "new fade")
+        local color = GV.Color.fade(self.Flags, "Combat_ChamsColor", now)
+        local lifetime = self:_flag("ChamsLifetime", 0.8)
+
+        local model = self:_cloneCharacter(character)
+        if not model then return end
+        model.Name = "\0"
+
+        local faders, growSizes
+        if kind == "outline" then
+            faders = self:_buildChamsOutline(model, color)
+        else
+            -- juju L15454: "neon"->Neon, "forcefield" o cualquier otro valor->ForceField (mismo fallback).
+            local material = (kind == "neon") and Enum.Material.Neon or Enum.Material.ForceField
+            faders, growSizes = self:_buildChamsSolid(model, material, color)
+        end
+        model.Parent = self.Services.Workspace
+
+        local entry = {
+            model = model, faders = faders, growSizes = growSizes, animType = animType,
+            curveDur = (animType == "new fade") and CHAMS_NEWFADE_CURVE_DUR or CHAMS_FADE_CURVE_DUR,
+            spawnT = now, lifetime = lifetime, fading = false, fadeStart = nil, fadeAlpha = 0,
+        }
+        table.insert(self._activeChams, entry)
+        self._lastChams = entry
+    end
+
+    -- animador per-frame (reemplaza destroy_hit_chams_fade/new_fade/none de juju, ver header del
+    -- archivo adaptacion 2). animType=="none": destruye INMEDIATO al vencer el lifetime, sin
+    -- ventana (juju destroy_hit_chams_none = destroy(model) directo, sin delay adicional).
+    -- fade/new fade: dispara GV.Tween sobre `e.fadeAlpha` (0->1, mismo patron que e.fadeAlpha de
+    -- :_updateBeamTracers) durante `e.curveDur`; la ventana total hasta destroy sigue siendo
+    -- CHAMS_TOTAL_FADE_DUR (0.25s) para ambas variantes con curva (juju: el `delay(0.25,...)` de
+    -- destroy es el mismo en L15252 y L15306 independiente de que la curva interna dure 0.25 o
+    -- 0.15) -- tras completar la curva (curveDur<TOTAL_FADE_DUR en "new fade"), el modelo queda
+    -- congelado en transparency=1/size maxima el resto de la ventana.
+    function Combat:_updateChams(now)
+        local list = self._activeChams
+        for i = #list, 1, -1 do
+            local e = list[i]
+            if not e.fading and (now - e.spawnT) >= e.lifetime then
+                e.fading = true; e.fadeStart = now
+                if e.animType == "none" then
+                    pcall(function() e.model:Destroy() end)
+                    if self._lastChams == e then self._lastChams = nil end
+                    table.remove(list, i)
+                else
+                    GV.Tween(e, { fadeAlpha = 1 }, "quad", e.curveDur)
+                end
+            elseif e.fading then
+                local transparency = CHAMS_TRANSPARENCY + (1 - CHAMS_TRANSPARENCY) * e.fadeAlpha
+                for _, part in ipairs(e.faders) do
+                    pcall(function()
+                        part.Transparency = transparency
+                        local oldSize = e.growSizes and e.growSizes[part]
+                        if oldSize then part.Size = oldSize + CHAMS_GROW_SIZE * transparency end
+                    end)
+                end
+                if (now - e.fadeStart) >= CHAMS_TOTAL_FADE_DUR then
+                    pcall(function() e.model:Destroy() end)
+                    if self._lastChams == e then self._lastChams = nil end
+                    table.remove(list, i)
+                end
+            end
+        end
+    end
+
     -- ── triggers del provider ──
     function Combat:_onShot(origin, hitPos, isLocal)
         if not (self:_flag("Enabled", false) and self:_flag("Tracer", false)) then return end
@@ -1118,10 +1369,16 @@ return function(GV)
             local ok, cf = pcall(function() return part.CFrame end)
             if ok and typeof(cf) == "CFrame" then self:_fireParticle(cf, lethal, now) end
         end
+        -- Task 8 (Hit Chams, este bloque -- ULTIMA feature). A diferencia de Marker/Damage/
+        -- Particle arriba, no consume `part`/`dmg`/`lethal` -- solo `plr` (el Player golpeado,
+        -- ver :_spawnChams).
+        if self:_flag("Chams", false) then
+            self:_spawnChams(plr, now)
+        end
     end
 
-    -- GV.tweenStep + TODOS los updaters (tracers + hitmarkers + damage numbers + target ring)
-    -- corren SIEMPRE, sin gatear por Combat_Enabled -- igual convencion que Aura:_update/
+    -- GV.tweenStep + TODOS los updaters (tracers + hitmarkers + damage numbers + target ring +
+    -- hit chams) corren SIEMPRE, sin gatear por Combat_Enabled -- igual convencion que Aura:_update/
     -- ESP:_update (tweenStep incondicional). Si se gatearan, apagar Combat_Enabled con un
     -- tracer/marker/numero a mitad de fade lo congelaria (Drawing/Beam visibles) para siempre
     -- hasta re-activar o Unload -- el pool nunca liberaria el bundle ni el Beam se destruiria.
@@ -1140,6 +1397,7 @@ return function(GV)
         self:_updateMarker2D(now)
         self:_updateDamage(now)
         self:_updateRing(now)
+        self:_updateChams(now)
     end
 
     function Combat:Init()
@@ -1194,11 +1452,27 @@ return function(GV)
         -- self._made (esta registrado ahi, ver :_ensureParticleLib) -- self._particleLib = nil solo
         -- fuerza una fabricacion NUEVA (Part + presets) en el proximo :_ensureParticleLib, evitando
         -- retener una referencia a un Part ya destruido.
+        -- self._activeChams (Task 8) NO vive en self._made (mismo motivo que self._activeBeam:
+        -- son Models parenteados directo a Workspace, con su propio ciclo de vida de fade->
+        -- destroy) -- cualquier chams todavia vivo/fading al momento de Unload se destruye acá
+        -- (mandato del brief: "no unbounded growth" cubre tambien el caso "modulo descargado a
+        -- mitad de vuelo"). self._chamsOutlineTemplate sigue el mismo criterio que
+        -- self._particleLib/self._ring: se destruye y se nillea para forzar una fabricacion
+        -- nueva en el proximo :_chamsOutlineTemplate.
+        for _, e in ipairs(self._activeChams) do
+            pcall(function() e.model:Destroy() end)
+        end
         table.clear(self.Conns); table.clear(self.Drawings); table.clear(self._made)
         table.clear(self._linePool); table.clear(self._activeLine); table.clear(self._activeBeam)
         table.clear(self._marker3DPool); table.clear(self._active3D)
         table.clear(self._marker2DPool); table.clear(self._active2D)
         table.clear(self._damagePool); table.clear(self._activeDamage)
+        table.clear(self._activeChams)
+        self._lastChams = nil
+        if self._chamsOutlineTemplate then
+            pcall(function() self._chamsOutlineTemplate:Destroy() end)
+            self._chamsOutlineTemplate = nil
+        end
         self._ring = nil
         self._particleLib = nil
     end

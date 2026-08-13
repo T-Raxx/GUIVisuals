@@ -107,6 +107,29 @@ return function(GV)
     GV.pushCF(S, { toggle = "Combat_Particle", base = "Combat_ParticleLethal", text = "Particle lethal color",
         tab = TAB, group = "Hit Particles", side = "Left", default = C(133, 220, 255) })
 
+    -- Task 8 -- Hit Chams (juju menu L15205-15211: "hit_chams"). Ultima feature del combat-vfx-
+    -- port -- ver core/combat.lua Combat:_spawnChams/_updateChams para el mecanismo (clone del
+    -- Character golpeado, recolor, fade/grow). juju trae 1 SOLO colorpicker acá (a diferencia de
+    -- Marker/Damage/Particle arriba) -- no existe "hit_chams_lethal_color" en el menu original,
+    -- se porta 1:1 esa ausencia (sin variante lethal). El componente transparency del colorpicker
+    -- de juju (["transparency_flag"]="hit_chams_transparency", default 0.8) NO tiene equivalente
+    -- en el helper GV.pushCF/GV.CF de este proyecto (mismo limite ya documentado arriba en Hit
+    -- Particles -- GV.Color.fade solo devuelve Color3, no transparency) -- se porta como
+    -- constante fija CHAMS_TRANSPARENCY en core/combat.lua (valor 0.8, el default real del menu
+    -- de juju), no como fila de menu propia.
+    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_Chams", type = "toggle",
+        text = "Hit chams", default = false, dependsOn = "Combat_Enabled" }
+    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_ChamsOnlyLast", type = "toggle",
+        text = "Only last hit", default = false, dependsOn = "Combat_Chams" }
+    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_ChamsAnimation", type = "dropdown",
+        text = "Animation", values = { "new fade", "fade", "none" }, default = "new fade", dependsOn = "Combat_Chams" }
+    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_ChamsType", type = "dropdown",
+        text = "Type", values = { "forcefield", "outline", "neon" }, default = "neon", dependsOn = "Combat_Chams" }
+    add{ tab = TAB, group = "Hit Chams", side = "Left", flag = "Combat_ChamsLifetime", type = "slider",
+        text = "Lifetime", min = 0.1, max = 1.5, default = 0.8, decimals = 1, dependsOn = "Combat_Chams" }
+    GV.pushCF(S, { toggle = "Combat_Chams", base = "Combat_ChamsColor", text = "Chams color",
+        tab = TAB, group = "Hit Chams", side = "Left", default = C(142, 242, 255) })
+
     GV.Modules = GV.Modules or {}
     GV.Modules.combat = GV.Modules.combat or {}
     GV.Modules.combat.schema = S
