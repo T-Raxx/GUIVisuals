@@ -66,6 +66,23 @@ return function(GV)
     GV.pushCF(S, { toggle = "Combat_Damage", base = "Combat_DamageOutline", text = "Damage outline",
         tab = TAB, group = "Damage Numbers", side = "Left", default = C(15, 15, 15) })
 
+    -- Task 6 -- Target Ring (juju menu L20392-20395: "3d_target_circle" + color/gradient
+    -- color colorpickers; thickness=2/ZIndex=10/speed=4 son constantes hardcoded en
+    -- do_target_circle -- juju L22690-22764 -- sin fila de menu propia ahi, expuestas acá como
+    -- sliders con esos mismos valores de default per el brief). CONTINUO, no event-based: ver
+    -- nota en core/combat.lua Combat:_updateRing -- corre cada frame gateado por su propio
+    -- toggle, no por un onShot/onHit.
+    add{ tab = TAB, group = "Target Ring", side = "Left", flag = "Combat_Ring", type = "toggle",
+        text = "Target ring", default = false, dependsOn = "Combat_Enabled" }
+    GV.pushCF(S, { toggle = "Combat_Ring", base = "Combat_RingColor", text = "Ring color",
+        tab = TAB, group = "Target Ring", side = "Left", default = C(255, 184, 243) })
+    GV.pushCF(S, { toggle = "Combat_Ring", base = "Combat_RingGradient", text = "Ring gradient",
+        tab = TAB, group = "Target Ring", side = "Left", default = C(255, 255, 255) })
+    add{ tab = TAB, group = "Target Ring", side = "Left", flag = "Combat_RingThickness", type = "slider",
+        text = "Thickness", min = 0, max = 4, default = 2, decimals = 0, dependsOn = "Combat_Ring" }
+    add{ tab = TAB, group = "Target Ring", side = "Left", flag = "Combat_RingSpeed", type = "slider",
+        text = "Spin speed", min = 0.5, max = 8, default = 4, decimals = 1, dependsOn = "Combat_Ring" }
+
     GV.Modules = GV.Modules or {}
     GV.Modules.combat = GV.Modules.combat or {}
     GV.Modules.combat.schema = S

@@ -79,6 +79,10 @@ return function(GV)
             -- Task 5: pool de Drawings "Text" (1 sola Drawing por numero, el outline vive en la
             -- misma Drawing via Outline/OutlineColor) + lista de damage numbers activos.
             _damagePool = {}, _activeDamage = {},
+            -- Task 6: _ring queda nil hasta el primer :_updateRing -> :_ensureRing lo fabrica LAZY
+            -- (mismo criterio lazy que _beamTemplates/_lineBundle arriba) como
+            -- { lines = {32 Drawing "Line"}, radius = {r=...}, oldRadius = ..., bounce = nil|{...} }
+            -- -- pool FIJO (no pool-de-prestamo), ver nota grande sobre :_updateRing.
         }, Combat)
     end
 
@@ -104,6 +108,16 @@ return function(GV)
     local function resolveSignal(v)
         if type(v) == "function" then local ok, r = pcall(v); return ok and r or nil end
         return v
+    end
+
+    -- resuelve provider.target() de forma segura (mismo espiritu pcall-wrap que resolveSignal
+    -- arriba, pero para el accessor de Task 6 -- ver interfaz en el brief: "provider.target()
+    -- -> Player|nil", una funcion directa, no una Signal). Usado SOLO por :_updateRing.
+    local function resolveTarget(provider)
+        if not provider or type(provider.target) ~= "function" then return nil end
+        local ok, t = pcall(provider.target)
+        if ok and t then return t end
+        return nil
     end
 
     ------------------------------------------------------------------------------------------
@@ -492,6 +506,118 @@ return function(GV)
         end
     end
 
+    ------------------------------------------------------------------------------------------
+    -- Task 6 -- Target Ring: pool FIJO (32 Drawing "Line" creadas 1 sola vez -- NO es el patron
+    -- event-spawn / pool-de-prestamo de Tasks 3-5 arriba). Port de jujudotlol.lua L22690-22764
+    -- ("target circle", do_target_circle): arco spinning de 32 segmentos alrededor de
+    -- provider.target(), con gradiente color3_lerp "comet-tail". El arco NO es un circulo
+    -- completo: el paso angular de juju (0.12566370614359174 rad = 2*pi/50) * 32 segmentos
+    -- cubre solo ~230.4 grados, y el segmento i=32 SIEMPRE cae con Transparency=0 (invisible en
+    -- la convencion Drawing de este proyecto, ver ESP.lua L238) porque `visible = (i+32) % 32`
+    -- da 0 para i=32 -- en Lua/Luau 0 es TRUTHY (solo nil/false son falsy), asi que juju SIEMPRE
+    -- deja `line["Visible"] = true` y usa fade=visible/32=0 para ocultar ese segmento via
+    -- transparencia, no via el flag Visible. Se porta 1:1 esa mecanica (un `if visible ~= 0`
+    -- seria un comportamiento distinto al original).
+    --
+    -- Trigger: CONTINUO (brief Task 6), no onShot/onHit -- corre cada frame desde :_update
+    -- incondicionalmente (mismo mandato de la nota grande sobre :_update mas abajo) pero gatea
+    -- su propia VISIBILIDAD adentro de :_updateRing (Combat_Ring off / sin target / sin torso
+    -- -> oculta las 32 lineas y return), nunca en :_update mismo -- si se gateara ahi, apagar
+    -- Combat_Ring o Combat_Enabled starvearia a _updateLineTracers/_updateBeamTracers/
+    -- _updateMarker3D/_updateMarker2D/_updateDamage de su tick (mismo razonamiento que la nota
+    -- de Task 3/4/5).
+    ------------------------------------------------------------------------------------------
+    local RING_ANGLE_STEP = 0.12566370614359174 -- 2*pi/50, exacto a juju L22706/22707
+
+    function Combat:_ensureRing()
+        local r = self._ring
+        if r then return r end
+        local lines = {}
+        for i = 1, 32 do lines[i] = self:_draw("Line", { ZIndex = 10 }) end
+        r = { lines = lines, radius = { r = 0 }, oldRadius = 0, bounce = nil }
+        self._ring = r
+        return r
+    end
+
+    -- Adaptaciones vs juju (ver brief "adapt, do not invent"):
+    --  1) el radio se lee via char:GetBoundingBox() directo (pcall) en vez del truco de juju de
+    --     extraer Model.GetBoundingBox de un Model descartable (evasion de hook -- no aplica
+    --     aca, ningun otro feature de este archivo porta ese tipo de evasion).
+    --  2) el "bounce" de radio en 2 fases (overshoot +3 studs en 0.07s quad-out -> asienta en
+    --     0.14s circular-out, juju L22698-22704, disparado solo si el radio cambio >1.1 studs)
+    --     se adapta del `tween(...); delay(0.07, function() if data[11]==new_radius+3 then
+    --     tween(...) end end)` de juju (push-into-scheduler) al patron per-frame que ya usa
+    --     este archivo para timers de 2 fases (e.fading/e.fadeStart de Tasks 3-5) en vez de
+    --     `task.delay`/`delay` -- self._ring.bounce guarda {settle=, fireAt=} y :_updateRing
+    --     dispara la 2da fase cuando `now >= fireAt`, con el mismo guard de juju ("solo si nadie
+    --     disparo un nuevo bounce mientras tanto", ahi comparado contra `data[11]==new_radius+3`
+    --     -- aca contra `ring.radius.r`).
+    function Combat:_updateRing(now)
+        local ring = self:_ensureRing()
+        local lines = ring.lines
+        local cam = self.Services.Workspace.CurrentCamera
+        local on = self:_flag("Enabled", false) and self:_flag("Ring", false)
+        local target = on and resolveTarget(self._provider) or nil
+        local char = target and target.Character
+        local torso = char and (char:FindFirstChild("UpperTorso") or char:FindFirstChild("HumanoidRootPart"))
+        if not on or not target or not torso or not cam then
+            for i = 1, 32 do lines[i].Visible = false end
+            ring.oldRadius = 0
+            ring.bounce = nil
+            return
+        end
+        local okPos, position = pcall(function() return torso.Position end)
+        if not okPos or typeof(position) ~= "Vector3" then
+            for i = 1, 32 do lines[i].Visible = false end
+            return
+        end
+
+        local baseColor = GV.Color.fade(self.Flags, "Combat_RingColor", now)
+        local gradColor = GV.Color.fade(self.Flags, "Combat_RingGradient", now)
+        local thickness = self:_flag("RingThickness", 2)
+        local speed = self:_flag("RingSpeed", 4)
+
+        -- radio: bounding box del char (juju L22696-22697, `(size.X+size.Z)/3` clampeado 2..10)
+        local okBB, _, size = pcall(function() return char:GetBoundingBox() end)
+        if okBB and size then
+            local newRadius = math.clamp((size.X + size.Z) / 3, 2, 10)
+            if newRadius ~= ring.oldRadius and math.abs(newRadius - ring.oldRadius) > 1.1 then
+                ring.oldRadius = newRadius
+                GV.Tween(ring.radius, { r = newRadius + 3 }, "quad", 0.07)
+                ring.bounce = { settle = newRadius, fireAt = now + 0.07 }
+            end
+        end
+        if ring.bounce and now >= ring.bounce.fireAt then
+            if math.abs(ring.radius.r - (ring.bounce.settle + 3)) < 0.01 then
+                GV.Tween(ring.radius, { r = ring.bounce.settle }, "circular", 0.14)
+            end
+            ring.bounce = nil
+        end
+
+        local offset = (now * speed) % (2 * math.pi)
+        local radius = ring.radius.r
+
+        for i = 1, 32 do
+            local line = lines[i]
+            local angle1 = RING_ANGLE_STEP * (i - 1) + offset
+            local angle2 = RING_ANGLE_STEP * i + offset
+            local p1, on1 = cam:WorldToViewportPoint(position + Vector3.new(math.cos(angle1) * radius, 0, math.sin(angle1) * radius))
+            local p2, on2 = cam:WorldToViewportPoint(position + Vector3.new(math.cos(angle2) * radius, 0, math.sin(angle2) * radius))
+            if on1 and on2 then
+                local visible = i % 32 -- 0 para i=32 (juju: (i+32)%32, identico numericamente)
+                local fade = visible / 32
+                line.Thickness = thickness
+                line.From = Vector2.new(p1.X, p1.Y)
+                line.To = Vector2.new(p2.X, p2.Y)
+                line.Transparency = math.max(0, fade)
+                line.Color = GV.Color3Lerp(baseColor, gradColor, i / 32)
+                line.Visible = true
+            else
+                line.Visible = false
+            end
+        end
+    end
+
     -- ── triggers del provider ──
     function Combat:_onShot(origin, hitPos, isLocal)
         if not (self:_flag("Enabled", false) and self:_flag("Tracer", false)) then return end
@@ -521,14 +647,18 @@ return function(GV)
         end
     end
 
-    -- GV.tweenStep + TODOS los updaters (tracers + hitmarkers + damage numbers) corren SIEMPRE,
-    -- sin gatear por Combat_Enabled -- igual convencion que Aura:_update/ESP:_update (tweenStep
-    -- incondicional). Si se gatearan, apagar Combat_Enabled con un tracer/marker/numero a mitad
-    -- de fade lo congelaria (Drawing/Beam visibles) para siempre hasta re-activar o Unload -- el
-    -- pool nunca liberaria el bundle ni el Beam se destruiria. El toggle solo debe frenar SPAWNS
-    -- nuevos (ya gateado en :_onShot/:_onHit); lo ya disparado debe poder terminar su ciclo de
-    -- vida (fade -> release/destroy) igual. Confirmado como review finding de Task 3, mandatorio
-    -- para Task 4/5.
+    -- GV.tweenStep + TODOS los updaters (tracers + hitmarkers + damage numbers + target ring)
+    -- corren SIEMPRE, sin gatear por Combat_Enabled -- igual convencion que Aura:_update/
+    -- ESP:_update (tweenStep incondicional). Si se gatearan, apagar Combat_Enabled con un
+    -- tracer/marker/numero a mitad de fade lo congelaria (Drawing/Beam visibles) para siempre
+    -- hasta re-activar o Unload -- el pool nunca liberaria el bundle ni el Beam se destruiria.
+    -- El toggle solo debe frenar SPAWNS nuevos (ya gateado en :_onShot/:_onHit); lo ya disparado
+    -- debe poder terminar su ciclo de vida (fade -> release/destroy) igual. Confirmado como
+    -- review finding de Task 3, mandatorio para Task 4/5. Task 6 (:_updateRing) no es
+    -- event-spawn (no tiene ciclo de vida que terminar), pero sigue el MISMO mandato de correr
+    -- incondicional -- gatea su propia visibilidad adentro (ver nota grande sobre
+    -- :_updateRing), nunca aca, para no starvear al resto de updaters de arriba si alguien
+    -- intentara un `if not self:_flag("Ring") then return end` temprano en :_update.
     function Combat:_update(now, dt)
         GV.tweenStep(now, dt)
         self:_updateLineTracers(now)
@@ -536,6 +666,7 @@ return function(GV)
         self:_updateMarker3D(now)
         self:_updateMarker2D(now)
         self:_updateDamage(now)
+        self:_updateRing(now)
     end
 
     function Combat:Init()
@@ -578,15 +709,19 @@ return function(GV)
             pcall(function() e.att0:Destroy() end)
             pcall(function() e.att1:Destroy() end)
         end
-        -- hitmarkers (Task 4) y damage numbers (Task 5) NO necesitan destroy explicito -- sus
-        -- Drawing "Line"/"Text" ya se crearon via self:_draw y quedaron registradas en
-        -- self.Drawings, cubiertas por el loop de arriba. Solo hace falta vaciar los pools/listas
-        -- de tracking.
+        -- hitmarkers (Task 4), damage numbers (Task 5) y el target ring (Task 6) NO necesitan
+        -- destroy explicito -- sus Drawing "Line"/"Text" ya se crearon via self:_draw y quedaron
+        -- registradas en self.Drawings, cubiertas por el loop de arriba. Solo hace falta vaciar
+        -- los pools/listas de tracking -- self._ring = nil (a diferencia de los table.clear() de
+        -- abajo, que vacian pero conservan la MISMA tabla) fuerza a :_ensureRing a fabricar un
+        -- pool de 32 Drawings NUEVO en el proximo Init -- las 32 lineas viejas ya fueron
+        -- :Remove()-idas arriba, retener esa referencia las dejaria apuntando a Drawings muertas.
         table.clear(self.Conns); table.clear(self.Drawings); table.clear(self._made)
         table.clear(self._linePool); table.clear(self._activeLine); table.clear(self._activeBeam)
         table.clear(self._marker3DPool); table.clear(self._active3D)
         table.clear(self._marker2DPool); table.clear(self._active2D)
         table.clear(self._damagePool); table.clear(self._activeDamage)
+        self._ring = nil
     end
 
     GV.Combat = Combat
