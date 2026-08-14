@@ -100,7 +100,7 @@ return function(GV)
     add{ tab = TAB, group = "Hit Particles", side = "Left", flag = "Combat_ParticlePreset", type = "dropdown",
         text = "Preset", multi = true,
         values = { "bubble", "sparks", "orbs", "air", "blood", "light", "lightning", "blackflash", "gravity", "meteor" },
-        default = { sparks = true }, dependsOn = "Combat_Particle" }
+        default = { "sparks" }, dependsOn = "Combat_Particle" }
     add{ tab = TAB, group = "Hit Particles", side = "Left", flag = "Combat_ParticleBehindWalls", type = "toggle",
         text = "Behind walls", default = false, dependsOn = "Combat_Particle" }
     GV.pushCF(S, { toggle = "Combat_Particle", base = "Combat_ParticleColor", text = "Particle color",

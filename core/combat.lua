@@ -1133,10 +1133,14 @@ return function(GV)
         local lib = self:_ensureParticleLib()
         -- MULTI-SELECT: el flag ahora es un SET {name=true} (varios presets a la vez). Compat legacy: si es
         -- string, un solo preset. Emitimos TODOS los seleccionados desde el mismo Part pooled.
-        local sel = self:_flag("ParticlePreset", { sparks = true })
+        local sel = self:_flag("ParticlePreset", "sparks")
         local names = {}
         if type(sel) == "table" then
-            for name, on in pairs(sel) do if on then names[#names + 1] = name end end
+            if sel[1] ~= nil then
+                for _, name in ipairs(sel) do names[#names + 1] = name end   -- multi GetValue = ARRAY {"sparks",...}
+            else
+                for name, on in pairs(sel) do if on then names[#names + 1] = name end end   -- set {name=true} legacy
+            end
         elseif type(sel) == "string" then
             names[1] = sel
         end
