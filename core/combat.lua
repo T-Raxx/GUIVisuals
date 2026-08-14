@@ -1131,17 +1131,29 @@ return function(GV)
     -- (brief: "particle emission is :Emit-based/self-expiring").
     function Combat:_fireParticle(cf, lethal, now)
         local lib = self:_ensureParticleLib()
-        local presetName = self:_flag("ParticlePreset", "sparks")
-        local preset = lib.presets[presetName] or lib.presets.sparks
-        if not preset then return end
+        -- MULTI-SELECT: el flag ahora es un SET {name=true} (varios presets a la vez). Compat legacy: si es
+        -- string, un solo preset. Emitimos TODOS los seleccionados desde el mismo Part pooled.
+        local sel = self:_flag("ParticlePreset", { sparks = true })
+        local names = {}
+        if type(sel) == "table" then
+            for name, on in pairs(sel) do if on then names[#names + 1] = name end end
+        elseif type(sel) == "string" then
+            names[1] = sel
+        end
+        if #names == 0 then names[1] = "sparks" end
         local color = ColorSequence.new(lethal and GV.Color.fade(self.Flags, "Combat_ParticleLethal", now)
             or GV.Color.fade(self.Flags, "Combat_ParticleColor", now))
         local zOffset = self:_flag("ParticleBehindWalls", false) and 1 or 0
         lib.part.CFrame = cf
-        for _, p in ipairs(preset) do
-            p.emitter.Color = color
-            p.emitter.ZOffset = zOffset
-            p.emitter:Emit(p.count)
+        for _, presetName in ipairs(names) do
+            local preset = lib.presets[presetName]
+            if preset then
+                for _, p in ipairs(preset) do
+                    p.emitter.Color = color
+                    p.emitter.ZOffset = zOffset
+                    p.emitter:Emit(p.count)
+                end
+            end
         end
     end
 
